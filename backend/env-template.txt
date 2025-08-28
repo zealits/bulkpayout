@@ -1,0 +1,25 @@
+# Copy this file to .env and fill in your actual credentials
+
+# Server Configuration
+PORT=5000
+NODE_ENV=development
+
+# Database Configuration
+MONGODB_URI=mongodb://localhost:27017/bulkpayout
+
+# PayPal Configuration
+PAYPAL_CLIENT_ID=your_paypal_client_id_here
+PAYPAL_CLIENT_SECRET=your_paypal_client_secret_here
+PAYPAL_MODE=sandbox
+# Change to 'live' for production
+
+# JWT Configuration
+JWT_SECRET=your_jwt_secret_key_here
+JWT_EXPIRE=30d
+
+# CORS Configuration
+FRONTEND_URL=http://localhost:5173
+
+# File Upload Configuration
+MAX_FILE_SIZE=10485760
+# 10MB in bytes

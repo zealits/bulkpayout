@@ -1,0 +1,7 @@
+# Copy this file to .env and update the values as needed
+
+# Backend API URL
+VITE_API_URL=http://localhost:5000/api
+
+# Environment
+VITE_NODE_ENV=development

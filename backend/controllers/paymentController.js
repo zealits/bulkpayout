@@ -1,0 +1,470 @@
+const asyncHandler = require("../middleware/asyncHandler");
+const Payment = require("../models/Payment");
+const PaymentBatch = require("../models/PaymentBatch");
+const paypalConfig = require("../config/paypal");
+const { successResponse, errorResponse, paginatedResponse } = require("../utils/responseHelper");
+
+// @desc    Get all payment batches
+// @route   GET /api/payments/batches
+// @access  Public
+const getPaymentBatches = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const batches = await PaymentBatch.find().sort({ createdAt: -1 }).skip(skip).limit(limit);
+
+  const totalCount = await PaymentBatch.countDocuments();
+
+  paginatedResponse(res, batches, totalCount, page, limit, "Payment batches retrieved successfully");
+});
+
+// @desc    Get single payment batch
+// @route   GET /api/payments/batches/:batchId
+// @access  Public
+const getPaymentBatch = asyncHandler(async (req, res) => {
+  const batch = await PaymentBatch.findOne({ batchId: req.params.batchId });
+
+  if (!batch) {
+    return errorResponse(res, "Payment batch not found", 404);
+  }
+
+  const payments = await Payment.findByBatch(req.params.batchId);
+
+  successResponse(res, { batch, payments }, "Payment batch retrieved successfully");
+});
+
+// @desc    Get payments by batch
+// @route   GET /api/payments/batches/:batchId/payments
+// @access  Public
+const getPaymentsByBatch = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+  const status = req.query.status;
+
+  let query = { batchId: req.params.batchId };
+  if (status) {
+    query.status = status;
+  }
+
+  const payments = await Payment.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
+
+  const totalCount = await Payment.countDocuments(query);
+
+  paginatedResponse(res, payments, totalCount, page, limit, "Payments retrieved successfully");
+});
+
+// @desc    Process payment batch
+// @route   POST /api/payments/batches/:batchId/process
+// @access  Public
+const processPaymentBatch = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+  const { senderBatchHeader } = req.body;
+
+  // Find the batch
+  const batch = await PaymentBatch.findOne({ batchId });
+  if (!batch) {
+    return errorResponse(res, "Payment batch not found", 404);
+  }
+
+  // Get pending payments
+  const payments = await Payment.find({
+    batchId,
+    status: "pending",
+  });
+
+  if (payments.length === 0) {
+    return errorResponse(res, "No pending payments found in this batch", 400);
+  }
+
+  // Update batch status
+  batch.status = "processing";
+  batch.processedAt = new Date();
+  await batch.save();
+
+  // Update payment statuses
+  await Payment.updateMany({ batchId, status: "pending" }, { status: "processing", processedAt: new Date() });
+
+  try {
+    console.log(`Starting PayPal payout for batch ${batchId} with ${payments.length} payments`);
+
+    // Create PayPal payout
+    const payoutResult = await paypalConfig.createPayout(batchId, payments, senderBatchHeader);
+
+    console.log("PayPal payout result:", JSON.stringify(payoutResult, null, 2));
+
+    if (!payoutResult.success) {
+      console.error("PayPal payout failed:", payoutResult.error);
+
+      // Revert status changes
+      batch.status = "failed";
+      batch.errorMessage = payoutResult.error;
+      await batch.save();
+
+      await Payment.updateMany(
+        { batchId, status: "processing" },
+        {
+          status: "failed",
+          errorMessage: payoutResult.error,
+          completedAt: new Date(),
+        }
+      );
+
+      return errorResponse(res, "PayPal payout failed", 400, payoutResult.details);
+    }
+
+    // Validate PayPal response structure
+    if (!payoutResult.data) {
+      console.error("PayPal response missing data field:", payoutResult);
+      throw new Error("Invalid PayPal response: missing data field");
+    }
+
+    if (!payoutResult.data.batch_header) {
+      console.error("PayPal response missing batch_header:", payoutResult.data);
+      throw new Error("Invalid PayPal response: missing batch_header");
+    }
+
+    console.log("PayPal batch header:", JSON.stringify(payoutResult.data.batch_header, null, 2));
+
+    // Update batch with PayPal response
+    batch.paypalPayoutBatchId = payoutResult.data.batch_header.payout_batch_id;
+    batch.paypalBatchStatus = payoutResult.data.batch_header.batch_status;
+    await batch.save();
+
+    console.log(`Updated batch ${batchId} with PayPal batch ID: ${batch.paypalPayoutBatchId}`);
+
+    // Check if items array exists in the response
+    const payoutItems = payoutResult.data.items;
+
+    if (!payoutItems || !Array.isArray(payoutItems)) {
+      console.warn("PayPal response does not include items array. This might be normal for async processing.");
+      console.log("PayPal response structure:", Object.keys(payoutResult.data));
+
+      // For some PayPal configurations, items might not be immediately available
+      // We'll mark payments as processing and let the sync function handle the updates later
+      console.log("Marking payments as processing - will sync with PayPal later");
+
+      // Update batch counts
+      await batch.updateCounts();
+
+      successResponse(
+        res,
+        {
+          batch,
+          paypalResponse: payoutResult.data,
+          note: "Payout submitted to PayPal. Item details will be available after processing.",
+        },
+        "Payment batch submitted to PayPal successfully"
+      );
+      return;
+    }
+
+    console.log(`Processing ${payoutItems.length} payout items from PayPal response`);
+
+    // Validate that we have the expected number of items
+    if (payoutItems.length !== payments.length) {
+      console.warn(`Mismatch: Expected ${payments.length} items, received ${payoutItems.length} from PayPal`);
+    }
+
+    // Update individual payments with PayPal item IDs
+    for (let i = 0; i < Math.min(payoutItems.length, payments.length); i++) {
+      const payoutItem = payoutItems[i];
+      const payment = payments[i];
+
+      console.log(`Updating payment ${i + 1}/${payments.length}:`, {
+        paymentId: payment._id,
+        paypalItemId: payoutItem.payout_item_id,
+        transactionStatus: payoutItem.transaction_status,
+      });
+
+      await payment.updateStatus("completed", {
+        paypalPayoutItemId: payoutItem.payout_item_id,
+        transactionId: payoutItem.transaction_id,
+        paypalTransactionStatus: payoutItem.transaction_status,
+        completedAt: new Date(),
+      });
+    }
+
+    // Handle any remaining payments that weren't matched
+    if (payments.length > payoutItems.length) {
+      console.warn(`${payments.length - payoutItems.length} payments were not matched with PayPal items`);
+    }
+
+    // Update batch counts
+    await batch.updateCounts();
+
+    console.log(`Successfully processed payment batch ${batchId}`);
+
+    successResponse(
+      res,
+      {
+        batch,
+        paypalResponse: payoutResult.data,
+      },
+      "Payment batch processed successfully"
+    );
+  } catch (error) {
+    console.error("Error processing payment batch:", error);
+    console.error("Error stack:", error.stack);
+    console.error("Batch ID:", batchId);
+    console.error("Number of payments:", payments.length);
+
+    // Log additional context if available
+    if (error.response) {
+      console.error("HTTP Response Error:", {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+      });
+    }
+
+    // Revert status changes
+    batch.status = "failed";
+    batch.errorMessage = error.message;
+    await batch.save();
+
+    console.log(`Reverting batch ${batchId} status to failed`);
+
+    await Payment.updateMany(
+      { batchId, status: "processing" },
+      {
+        status: "failed",
+        errorMessage: error.message,
+        completedAt: new Date(),
+      }
+    );
+
+    console.log(`Updated all processing payments in batch ${batchId} to failed status`);
+
+    return errorResponse(res, "Error processing payment batch", 500, {
+      error: error.message,
+      batchId: batchId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// @desc    Get payment statistics
+// @route   GET /api/payments/stats
+// @access  Public
+const getPaymentStats = asyncHandler(async (req, res) => {
+  const { batchId, period } = req.query;
+
+  // Build date filter
+  let dateFilter = {};
+  if (period) {
+    const now = new Date();
+    let startDate;
+
+    switch (period) {
+      case "today":
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case "week":
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case "month":
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      default:
+        break;
+    }
+
+    if (startDate) {
+      dateFilter.createdAt = { $gte: startDate };
+    }
+  }
+
+  // Build match criteria
+  let matchCriteria = { ...dateFilter };
+  if (batchId) {
+    matchCriteria.batchId = batchId;
+  }
+
+  // Get payment statistics
+  const stats = await Payment.aggregate([
+    { $match: matchCriteria },
+    {
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
+        totalAmount: { $sum: "$amount" },
+      },
+    },
+  ]);
+
+  // Get batch statistics
+  const batchStats = await PaymentBatch.aggregate([
+    { $match: dateFilter },
+    {
+      $group: {
+        _id: null,
+        totalBatches: { $sum: 1 },
+        totalPayments: { $sum: "$totalPayments" },
+        totalAmount: { $sum: "$totalAmount" },
+      },
+    },
+  ]);
+
+  const result = {
+    paymentStats: stats,
+    batchStats: batchStats[0] || { totalBatches: 0, totalPayments: 0, totalAmount: 0 },
+    period: period || "all",
+  };
+
+  successResponse(res, result, "Payment statistics retrieved successfully");
+});
+
+// @desc    Update payment status
+// @route   PUT /api/payments/:paymentId/status
+// @access  Public
+const updatePaymentStatus = asyncHandler(async (req, res) => {
+  const { paymentId } = req.params;
+  const { status, errorMessage } = req.body;
+
+  const payment = await Payment.findById(paymentId);
+  if (!payment) {
+    return errorResponse(res, "Payment not found", 404);
+  }
+
+  await payment.updateStatus(status, { errorMessage });
+
+  // Update batch counts
+  const batch = await PaymentBatch.findOne({ batchId: payment.batchId });
+  if (batch) {
+    await batch.updateCounts();
+  }
+
+  successResponse(res, payment, "Payment status updated successfully");
+});
+
+// @desc    Sync with PayPal status
+// @route   POST /api/payments/batches/:batchId/sync
+// @access  Public
+const syncWithPayPal = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+
+  console.log(`Starting PayPal sync for batch: ${batchId}`);
+
+  const batch = await PaymentBatch.findOne({ batchId });
+  if (!batch || !batch.paypalPayoutBatchId) {
+    console.error(`Batch not found or missing PayPal batch ID: ${batchId}`);
+    return errorResponse(res, "PayPal batch ID not found", 404);
+  }
+
+  console.log(`Found batch with PayPal ID: ${batch.paypalPayoutBatchId}`);
+
+  try {
+    // Get batch status from PayPal
+    const batchResult = await paypalConfig.getPayoutBatch(batch.paypalPayoutBatchId);
+
+    console.log("PayPal sync result:", JSON.stringify(batchResult, null, 2));
+
+    if (!batchResult.success) {
+      console.error("Failed to sync with PayPal:", batchResult.error);
+      return errorResponse(res, "Failed to sync with PayPal", 400, batchResult.details);
+    }
+
+    // Update batch status
+    const oldBatchStatus = batch.paypalBatchStatus;
+    batch.paypalBatchStatus = batchResult.data.batch_header.batch_status;
+    await batch.save();
+
+    console.log(`Updated batch status from ${oldBatchStatus} to ${batch.paypalBatchStatus}`);
+
+    // Check if items are available
+    const payoutItems = batchResult.data.items;
+
+    if (!payoutItems || !Array.isArray(payoutItems)) {
+      console.warn("PayPal sync response does not include items array yet");
+      console.log("Available fields in PayPal response:", Object.keys(batchResult.data));
+
+      // Update batch counts anyway
+      await batch.updateCounts();
+
+      return successResponse(
+        res,
+        {
+          batch,
+          note: "Batch status updated, but individual payment details not yet available from PayPal",
+        },
+        "Partially synced with PayPal"
+      );
+    }
+
+    console.log(`Processing ${payoutItems.length} items from PayPal sync`);
+
+    // Update individual payment statuses
+    let updatedCount = 0;
+    for (const item of payoutItems) {
+      console.log(`Processing PayPal item:`, {
+        payout_item_id: item.payout_item_id,
+        transaction_status: item.transaction_status,
+        transaction_id: item.transaction_id,
+      });
+
+      const payment = await Payment.findOne({
+        paypalPayoutItemId: item.payout_item_id,
+      });
+
+      if (payment) {
+        const oldStatus = payment.status;
+        let newStatus = "pending";
+
+        if (item.transaction_status === "SUCCESS") {
+          newStatus = "completed";
+        } else if (item.transaction_status === "FAILED") {
+          newStatus = "failed";
+        } else if (item.transaction_status === "PENDING") {
+          newStatus = "processing";
+        }
+
+        await payment.updateStatus(newStatus, {
+          paypalTransactionStatus: item.transaction_status,
+          transactionId: item.transaction_id,
+        });
+
+        console.log(`Updated payment ${payment._id} status from ${oldStatus} to ${newStatus}`);
+        updatedCount++;
+      } else {
+        console.warn(`Payment not found for PayPal item ID: ${item.payout_item_id}`);
+      }
+    }
+
+    // Update batch counts
+    await batch.updateCounts();
+
+    console.log(`Successfully synced batch ${batchId}. Updated ${updatedCount} payments.`);
+
+    successResponse(
+      res,
+      {
+        batch,
+        syncDetails: {
+          itemsProcessed: payoutItems.length,
+          paymentsUpdated: updatedCount,
+          batchStatus: batch.paypalBatchStatus,
+        },
+      },
+      "Successfully synced with PayPal"
+    );
+  } catch (error) {
+    console.error("Error syncing with PayPal:", error);
+    console.error("Error stack:", error.stack);
+    return errorResponse(res, "Error syncing with PayPal", 500, {
+      error: error.message,
+      batchId: batchId,
+    });
+  }
+});
+
+module.exports = {
+  getPaymentBatches,
+  getPaymentBatch,
+  getPaymentsByBatch,
+  processPaymentBatch,
+  getPaymentStats,
+  updatePaymentStatus,
+  syncWithPayPal,
+};

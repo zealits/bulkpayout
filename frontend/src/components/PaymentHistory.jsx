@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { getPaymentBatches, getPaymentStats } from "../services/paymentService";
+import { getPaymentBatches, getPaymentStats, syncWithPayPal, getPaymentBatch } from "../services/paymentService";
 import {
   Box,
   Typography,
@@ -25,6 +25,13 @@ import {
   Button,
   IconButton,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
+  CircularProgress,
+  Stack,
 } from "@mui/material";
 import {
   Search as SearchIcon,
@@ -37,6 +44,8 @@ import {
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
   Pending as PendingIcon,
+  Sync as SyncIcon,
+  Visibility as ViewIcon,
 } from "@mui/icons-material";
 
 function PaymentHistory() {
@@ -48,6 +57,11 @@ function PaymentHistory() {
   const [paymentBatches, setPaymentBatches] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState(null);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const [batchDetails, setBatchDetails] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     loadPaymentHistory();
@@ -158,6 +172,54 @@ function PaymentHistory() {
     loadStats();
   };
 
+  const handleSyncWithPayPal = async (batchId) => {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const response = await syncWithPayPal(batchId);
+      if (response.success) {
+        setSyncMessage({
+          type: "success",
+          text: `Successfully synced with PayPal. Status: ${response.data.batch.paypalBatchStatus || "Updated"}`,
+        });
+        // Refresh the data to show updated statuses
+        loadPaymentHistory();
+      } else {
+        setSyncMessage({
+          type: "error",
+          text: "Failed to sync with PayPal. Please try again.",
+        });
+      }
+    } catch (error) {
+      console.error("Error syncing with PayPal:", error);
+      setSyncMessage({
+        type: "error",
+        text: `Error syncing with PayPal: ${error.message}`,
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleViewDetails = async (batch) => {
+    setSelectedBatch(batch);
+    setDetailsOpen(true);
+    try {
+      const response = await getPaymentBatch(batch.batchId);
+      if (response.success) {
+        setBatchDetails(response.data);
+      }
+    } catch (error) {
+      console.error("Error loading batch details:", error);
+    }
+  };
+
+  const handleCloseDetails = () => {
+    setDetailsOpen(false);
+    setSelectedBatch(null);
+    setBatchDetails(null);
+  };
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
@@ -166,6 +228,13 @@ function PaymentHistory() {
       <Typography variant="body1" color="text.secondary" paragraph>
         View and track all processed payments and their current status
       </Typography>
+
+      {/* Sync Message Alert */}
+      {syncMessage && (
+        <Alert severity={syncMessage.type} sx={{ mb: 3 }} onClose={() => setSyncMessage(null)}>
+          {syncMessage.text}
+        </Alert>
+      )}
 
       {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
@@ -295,10 +364,12 @@ function PaymentHistory() {
                 <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
                 <TableCell sx={{ fontWeight: "bold" }}>Batch Name</TableCell>
                 <TableCell sx={{ fontWeight: "bold" }}>Batch ID</TableCell>
+                <TableCell sx={{ fontWeight: "bold" }}>PayPal Status</TableCell>
                 <TableCell sx={{ fontWeight: "bold" }}>Total Amount</TableCell>
                 <TableCell sx={{ fontWeight: "bold" }}>Payments</TableCell>
                 <TableCell sx={{ fontWeight: "bold" }}>Upload Date</TableCell>
                 <TableCell sx={{ fontWeight: "bold" }}>Description</TableCell>
+                <TableCell sx={{ fontWeight: "bold" }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -317,6 +388,26 @@ function PaymentHistory() {
                     </Typography>
                   </TableCell>
                   <TableCell>
+                    {batch.paypalBatchStatus ? (
+                      <Chip
+                        label={batch.paypalBatchStatus}
+                        size="small"
+                        color={
+                          batch.paypalBatchStatus === "SUCCESS"
+                            ? "success"
+                            : batch.paypalBatchStatus === "PENDING"
+                            ? "warning"
+                            : "default"
+                        }
+                        variant="outlined"
+                      />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        Not synced
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Typography variant="body2" sx={{ fontWeight: "bold" }}>
                       ${batch.totalAmount.toFixed(2)}
                     </Typography>
@@ -329,6 +420,25 @@ function PaymentHistory() {
                     <Typography variant="body2" color="text.secondary">
                       {batch.description}
                     </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={1}>
+                      <Tooltip title="Sync with PayPal">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleSyncWithPayPal(batch.batchId)}
+                          disabled={syncing || !batch.paypalPayoutBatchId}
+                          color="primary"
+                        >
+                          {syncing ? <CircularProgress size={16} /> : <SyncIcon />}
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="View Details">
+                        <IconButton size="small" onClick={() => handleViewDetails(batch)} color="info">
+                          <ViewIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -358,6 +468,147 @@ function PaymentHistory() {
           </Typography>
         </Paper>
       )}
+
+      {/* Batch Details Dialog */}
+      <Dialog open={detailsOpen} onClose={handleCloseDetails} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          <Typography variant="h6">Batch Details: {selectedBatch?.name}</Typography>
+        </DialogTitle>
+        <DialogContent>
+          {batchDetails ? (
+            <Box>
+              {/* Batch Info */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Batch Information
+                    </Typography>
+                    <Typography>
+                      <strong>Batch ID:</strong> {batchDetails.batch.batchId}
+                    </Typography>
+                    <Typography>
+                      <strong>Status:</strong> {batchDetails.batch.status}
+                    </Typography>
+                    <Typography>
+                      <strong>PayPal Batch ID:</strong> {batchDetails.batch.paypalPayoutBatchId || "N/A"}
+                    </Typography>
+                    <Typography>
+                      <strong>PayPal Status:</strong> {batchDetails.batch.paypalBatchStatus || "Not synced"}
+                    </Typography>
+                    <Typography>
+                      <strong>Total Amount:</strong> ${batchDetails.batch.totalAmount?.toFixed(2)}
+                    </Typography>
+                    <Typography>
+                      <strong>Total Payments:</strong> {batchDetails.batch.totalPayments}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Payment Status Breakdown
+                    </Typography>
+                    <Typography>
+                      <strong>Completed:</strong> {batchDetails.batch.completedPayments || 0}
+                    </Typography>
+                    <Typography>
+                      <strong>Processing:</strong> {batchDetails.batch.processingPayments || 0}
+                    </Typography>
+                    <Typography>
+                      <strong>Failed:</strong> {batchDetails.batch.failedPayments || 0}
+                    </Typography>
+                    <Typography>
+                      <strong>Pending:</strong> {batchDetails.batch.pendingPayments || 0}
+                    </Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+              {/* Individual Payments */}
+              <Typography variant="h6" gutterBottom>
+                Individual Payments
+              </Typography>
+              <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Recipient</TableCell>
+                      <TableCell>Email</TableCell>
+                      <TableCell>Amount</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>PayPal Status</TableCell>
+                      <TableCell>Transaction ID</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {batchDetails.payments?.map((payment, index) => (
+                      <TableRow key={payment._id || index}>
+                        <TableCell>{payment.recipientName}</TableCell>
+                        <TableCell>{payment.recipientEmail}</TableCell>
+                        <TableCell>${payment.amount?.toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={payment.status}
+                            size="small"
+                            color={getStatusColor(payment.status)}
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {payment.paypalTransactionStatus ? (
+                            <Chip
+                              label={payment.paypalTransactionStatus}
+                              size="small"
+                              color={
+                                payment.paypalTransactionStatus === "SUCCESS"
+                                  ? "success"
+                                  : payment.paypalTransactionStatus === "PENDING"
+                                  ? "warning"
+                                  : "error"
+                              }
+                              variant="outlined"
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              N/A
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontFamily="monospace">
+                            {payment.transactionId || "N/A"}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Sync Button in Dialog */}
+              <Box sx={{ mt: 3, display: "flex", justifyContent: "center" }}>
+                <Button
+                  variant="contained"
+                  startIcon={syncing ? <CircularProgress size={20} /> : <SyncIcon />}
+                  onClick={() => handleSyncWithPayPal(selectedBatch?.batchId)}
+                  disabled={syncing || !selectedBatch?.paypalPayoutBatchId}
+                  color="primary"
+                >
+                  {syncing ? "Syncing..." : "Sync with PayPal"}
+                </Button>
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+              <CircularProgress />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDetails}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

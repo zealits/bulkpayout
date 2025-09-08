@@ -459,6 +459,38 @@ const syncWithPayPal = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Get PayPal account balance
+// @route   GET /api/payments/account/balance
+// @access  Public
+const getAccountBalance = asyncHandler(async (req, res) => {
+  console.log("Getting PayPal account balance");
+
+  try {
+    // Get account balance from PayPal
+    const balanceResult = await paypalConfig.getAccountBalance();
+
+    console.log("PayPal balance result:", JSON.stringify(balanceResult, null, 2));
+
+    if (!balanceResult.success) {
+      console.error("Failed to get account balance:", balanceResult.error);
+      return errorResponse(res, "Failed to get account balance", 400, balanceResult.details);
+    }
+
+    const responseData = {
+      balances: balanceResult.data.balances || [],
+      fallback: balanceResult.data.fallback || false,
+      message: balanceResult.data.message || "Account balance retrieved successfully",
+      recent_transactions: balanceResult.data.recent_transactions || null,
+      last_updated: new Date().toISOString(),
+    };
+
+    return successResponse(res, responseData, "Account balance retrieved successfully");
+  } catch (error) {
+    console.error("Error in getAccountBalance controller:", error);
+    return errorResponse(res, "Failed to get account balance", 500, { error: error.message });
+  }
+});
+
 module.exports = {
   getPaymentBatches,
   getPaymentBatch,
@@ -467,4 +499,5 @@ module.exports = {
   getPaymentStats,
   updatePaymentStatus,
   syncWithPayPal,
+  getAccountBalance,
 };

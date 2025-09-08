@@ -88,3 +88,13 @@ export const syncWithPayPal = async (batchId) => {
     throw error;
   }
 };
+
+// Get PayPal account balance
+export const getAccountBalance = async () => {
+  try {
+    const response = await api.get("/payments/account/balance");
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};

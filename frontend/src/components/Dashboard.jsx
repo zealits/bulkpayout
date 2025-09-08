@@ -18,6 +18,9 @@ import {
   CardContent,
   CardHeader,
   Divider,
+  CircularProgress,
+  Alert,
+  Button,
 } from "@mui/material";
 import {
   Dashboard as DashboardIcon,
@@ -26,6 +29,8 @@ import {
   History as HistoryIcon,
   AccountBalance as AccountIcon,
   Menu as MenuIcon,
+  CheckCircle as CheckCircleIcon,
+  Refresh as RefreshIcon,
 } from "@mui/icons-material";
 import ExcelUpload from "./ExcelUpload";
 import PaymentPreview from "./PaymentPreview";
@@ -236,21 +241,229 @@ function DashboardHome({ uploadedData }) {
 
 // Account Info Component
 function AccountInfo() {
+  const [accountData, setAccountData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+
+  const fetchAccountBalance = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const { getAccountBalance } = await import("../services/paymentService");
+      const response = await getAccountBalance();
+      setAccountData(response.data);
+    } catch (err) {
+      setError(err.message || "Failed to fetch account balance");
+      console.error("Error fetching account balance:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchAccountBalance();
+  }, []);
+
+  const formatCurrency = (amount, currency = "USD") => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency,
+    }).format(parseFloat(amount || 0));
+  };
+
+  const getBalanceIcon = (balanceType) => {
+    switch (balanceType) {
+      case "available":
+        return <AccountIcon sx={{ color: "success.main" }} />;
+      case "withheld":
+        return <AccountIcon sx={{ color: "warning.main" }} />;
+      case "total":
+      default:
+        return <AccountIcon sx={{ color: "primary.main" }} />;
+    }
+  };
+
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Account Information
-      </Typography>
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+        <Typography variant="h4" gutterBottom>
+          Account Information
+        </Typography>
+        <IconButton onClick={fetchAccountBalance} disabled={loading} color="primary">
+          {loading ? <CircularProgress size={24} /> : <RefreshIcon />}
+        </IconButton>
+      </Box>
+
+      {/* PayPal Integration Status */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <CheckCircleIcon sx={{ color: "success.main" }} />
           PayPal Integration
         </Typography>
         <Typography variant="body1" paragraph>
           Your PayPal account is connected and ready for bulk payments.
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          API Status: Connected
+          API Status:{" "}
+          {accountData?.api_status === "connected_limited_permissions"
+            ? "Connected (Limited Permissions)"
+            : "Connected"}
         </Typography>
+        {accountData?.last_updated && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Last Updated: {new Date(accountData.last_updated).toLocaleString()}
+          </Typography>
+        )}
+      </Paper>
+
+      {/* Account Balance Information */}
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Account Balance & Funds
+        </Typography>
+
+        {loading && (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+            <CircularProgress />
+          </Box>
+        )}
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+            <Button size="small" onClick={fetchAccountBalance} sx={{ ml: 2 }}>
+              Retry
+            </Button>
+          </Alert>
+        )}
+
+        {accountData && !loading && (
+          <Box>
+            {/* Permission Required Notice */}
+            {accountData.permission_required && (
+              <Alert severity="warning" sx={{ mb: 3 }}>
+                <Typography variant="body1" gutterBottom>
+                  <strong>Additional Permissions Required</strong>
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  {accountData.message}
+                </Typography>
+                {accountData.help_text && (
+                  <Typography variant="body2" color="text.secondary">
+                    {accountData.help_text}
+                  </Typography>
+                )}
+              </Alert>
+            )}
+
+            {/* Fallback Notice */}
+            {accountData.fallback && !accountData.permission_required && (
+              <Alert severity="info" sx={{ mb: 3 }}>
+                {accountData.message}
+              </Alert>
+            )}
+
+            {accountData.balances && accountData.balances.length > 0 ? (
+              <Grid container spacing={3}>
+                {accountData.balances.map((balance, index) => (
+                  <Grid item xs={12} key={index}>
+                    <Card variant="outlined">
+                      <CardHeader
+                        title={`${balance.currency} Account`}
+                        subheader={balance.primary ? "Primary Currency" : "Secondary Currency"}
+                        avatar={<AccountIcon color="primary" />}
+                      />
+                      <CardContent>
+                        <Grid container spacing={3}>
+                          {balance.total_balance && (
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ textAlign: "center" }}>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Total Balance
+                                </Typography>
+                                <Typography variant="h5" color="primary">
+                                  {formatCurrency(balance.total_balance.value, balance.total_balance.currency_code)}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          )}
+                          {balance.available_balance && (
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ textAlign: "center" }}>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Available Funds
+                                </Typography>
+                                <Typography variant="h5" color="success.main">
+                                  {formatCurrency(
+                                    balance.available_balance.value,
+                                    balance.available_balance.currency_code
+                                  )}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                  Ready for immediate use
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          )}
+                          {balance.withheld_balance && (
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ textAlign: "center" }}>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Withheld Funds
+                                </Typography>
+                                <Typography variant="h5" color="warning.main">
+                                  {formatCurrency(
+                                    balance.withheld_balance.value,
+                                    balance.withheld_balance.currency_code
+                                  )}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                  Temporarily held
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          )}
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            ) : accountData.permission_required ? (
+              <Card variant="outlined" sx={{ textAlign: "center", py: 4 }}>
+                <CardContent>
+                  <AccountIcon sx={{ fontSize: 48, color: "warning.main", mb: 2 }} />
+                  <Typography variant="h6" gutterBottom>
+                    Balance Information Unavailable
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Balance information is not available due to PayPal API limitations or account type restrictions.
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Payout functionality remains fully operational.
+                  </Typography>
+                </CardContent>
+              </Card>
+            ) : (
+              <Alert severity="warning">
+                Balance information is currently unavailable. Please check your PayPal account permissions or try again
+                later.
+              </Alert>
+            )}
+
+            {/* Recent Activity */}
+            {accountData.recent_transactions && (
+              <Box sx={{ mt: 3 }}>
+                <Typography variant="h6" gutterBottom>
+                  Recent Activity
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Recent transaction data available - check PayPal dashboard for detailed history.
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        )}
       </Paper>
     </Box>
   );

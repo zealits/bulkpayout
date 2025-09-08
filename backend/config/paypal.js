@@ -111,6 +111,125 @@ async function createPayout(batchId, payments, senderBatchHeader = {}) {
   }
 }
 
+// Get account balance information
+async function getAccountBalance() {
+  try {
+    const config = getPayPalConfig();
+    const accessToken = await getAccessToken();
+
+    // Try to get balance using PayPal Reporting API
+    const response = await axios.get(`${config.baseUrl}/v1/reporting/balances`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error("Error getting PayPal account balance:", error.response?.data || error.message);
+
+    // Check if it's a permissions issue
+    const isPermissionError =
+      error.response?.data?.name === "NOT_AUTHORIZED" ||
+      error.response?.data?.message?.includes("insufficient permissions");
+
+    if (isPermissionError) {
+      console.log("PayPal app lacks reporting permissions - returning permission notice");
+      return {
+        success: true,
+        data: {
+          permission_required: true,
+          balances: [],
+          message:
+            "Balance information is not available with current PayPal API access. This may be due to account type or API limitations.",
+          help_text:
+            "Note: PayPal's balance API requires business account verification and may not be available for all account types. Transaction search is enabled but balance reporting may be restricted.",
+          api_status: "connected_limited_permissions",
+        },
+      };
+    }
+
+    // For other errors, try transaction search as fallback
+    try {
+      const config = getPayPalConfig();
+      const accessToken = await getAccessToken();
+
+      const endDate = new Date().toISOString();
+      const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days ago
+
+      const transactionResponse = await axios.get(`${config.baseUrl}/v1/reporting/transactions`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        params: {
+          start_date: startDate,
+          end_date: endDate,
+          fields: "all",
+          page_size: 50,
+        },
+      });
+
+      return {
+        success: true,
+        data: {
+          fallback: true,
+          balances: [
+            {
+              currency: "USD",
+              primary: true,
+              total_balance: {
+                currency_code: "USD",
+                value: "0.00",
+              },
+              available_balance: {
+                currency_code: "USD",
+                value: "0.00",
+              },
+              withheld_balance: {
+                currency_code: "USD",
+                value: "0.00",
+              },
+            },
+          ],
+          recent_transactions: transactionResponse.data,
+          message: "Balance details not available - showing transaction history instead",
+        },
+      };
+    } catch (transactionError) {
+      console.error("Error getting PayPal transactions:", transactionError.response?.data || transactionError.message);
+
+      // Check if transaction API also has permission issues
+      const isTransactionPermissionError = transactionError.response?.data?.name === "NOT_AUTHORIZED";
+
+      if (isTransactionPermissionError) {
+        return {
+          success: true,
+          data: {
+            permission_required: true,
+            balances: [],
+            message:
+              "Balance and transaction information is not available with current PayPal API access. This may be due to account type or API limitations.",
+            help_text:
+              "Note: PayPal's balance and transaction APIs require business account verification and may not be available for all account types. Contact PayPal support for account-specific limitations.",
+            api_status: "connected_limited_permissions",
+          },
+        };
+      }
+
+      return {
+        success: false,
+        error: "Unable to fetch account balance information",
+        details: error.response?.data || null,
+      };
+    }
+  }
+}
+
 // Get payout batch details
 async function getPayoutBatch(payoutBatchId) {
   try {
@@ -199,4 +318,5 @@ module.exports = {
   getPayoutItem,
   buildPayoutRequest,
   validateConfig,
+  getAccountBalance,
 };

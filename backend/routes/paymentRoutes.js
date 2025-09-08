@@ -7,6 +7,7 @@ const {
   getPaymentStats,
   updatePaymentStatus,
   syncWithPayPal,
+  getAccountBalance,
 } = require("../controllers/paymentController");
 
 const router = express.Router();
@@ -23,5 +24,8 @@ router.put("/:paymentId/status", updatePaymentStatus);
 
 // Statistics routes
 router.get("/stats", getPaymentStats);
+
+// Account routes
+router.get("/account/balance", getAccountBalance);
 
 module.exports = router;

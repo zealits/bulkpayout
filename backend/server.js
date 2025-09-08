@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const mongoose = require("mongoose");
+const path = require("path");
 
 // Import routes
 const paymentRoutes = require("./routes/paymentRoutes");
@@ -28,6 +29,9 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// Serve static files from the frontend dist folder
+app.use(express.static(path.join(__dirname, "../frontend/dist")));
+
 // Database connection
 mongoose
   .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/bulkpayout")
@@ -51,12 +55,9 @@ app.get("/api/health", (req, res) => {
 // Error handling middleware
 app.use(errorHandler);
 
-// 404 handler
-app.use("*", (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-  });
+// SPA routing - serve index.html for all non-API routes
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
 });
 
 app.listen(PORT, () => {

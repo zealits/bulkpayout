@@ -5,6 +5,7 @@ const {
   getPaymentsByBatch,
   processPaymentBatch,
   getPaymentStats,
+  updateBatchPaymentMethod,
   updatePaymentStatus,
   syncWithPayPal,
   getAccountBalance,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.get("/batches", getPaymentBatches);
 router.get("/batches/:batchId", getPaymentBatch);
 router.get("/batches/:batchId/payments", getPaymentsByBatch);
+router.put("/batches/:batchId/payment-method", updateBatchPaymentMethod);
 router.post("/batches/:batchId/process", processPaymentBatch);
 router.post("/batches/:batchId/sync", syncWithPayPal);
 

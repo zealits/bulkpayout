@@ -114,7 +114,7 @@ function ExcelUpload({ onDataUpload }) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Upload Excel File</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white"></h1>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-2">
           <p className="text-gray-600 dark:text-gray-400">
             Upload an Excel file (.xlsx, .xls) or CSV file with payment details. Required columns: email, amount, name

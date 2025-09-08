@@ -13,6 +13,11 @@ PAYPAL_CLIENT_SECRET=your_paypal_client_secret_here
 PAYPAL_MODE=sandbox
 # Change to 'live' for production
 
+# Giftogram Configuration
+GIFTOGRAM_API_KEY=your_giftogram_api_key_here
+GIFTOGRAM_ENVIRONMENT=sandbox
+# Change to 'production' for live environment
+
 # JWT Configuration
 JWT_SECRET=your_jwt_secret_key_here
 JWT_EXPIRE=30d

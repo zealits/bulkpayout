@@ -353,6 +353,71 @@ const getPaymentStats = asyncHandler(async (req, res) => {
   successResponse(res, result, "Payment statistics retrieved successfully");
 });
 
+// @desc    Update batch payment method
+// @route   PUT /api/payments/batches/:batchId/payment-method
+// @access  Public
+const updateBatchPaymentMethod = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+  const { paymentMethod, config } = req.body;
+
+  // Validate payment method
+  const validMethods = ["paypal", "giftogram", "bank_transfer"];
+  if (!validMethods.includes(paymentMethod)) {
+    return errorResponse(res, "Invalid payment method", 400, {
+      message: `Payment method must be one of: ${validMethods.join(", ")}`,
+      suggestion: "Please select a valid payment method.",
+      action: "Select valid payment method",
+      severity: "warning",
+      retryable: false,
+    });
+  }
+
+  // Find the batch
+  const batch = await PaymentBatch.findOne({ batchId });
+  if (!batch) {
+    return errorResponse(res, "Payment batch not found", 404);
+  }
+
+  // Check if batch can be modified
+  if (batch.status !== "uploaded" && batch.status !== "draft") {
+    return errorResponse(res, "Cannot modify payment method for processed batch", 400, {
+      message: "Payment method can only be changed for uploaded or draft batches",
+      suggestion: "Create a new batch to use a different payment method.",
+      action: "Create new batch",
+      severity: "warning",
+      retryable: false,
+    });
+  }
+
+  // Update batch payment method
+  batch.paymentMethod = paymentMethod;
+
+  // Store method-specific configuration
+  if (config) {
+    if (paymentMethod === "giftogram") {
+      batch.giftogramCampaignId = config.campaignId;
+      batch.giftogramMessage = config.message;
+      batch.giftogramSubject = config.subject;
+    }
+  }
+
+  await batch.save();
+
+  // Update all payments in the batch
+  await Payment.updateMany({ batchId }, { paymentMethod });
+
+  console.log(`Updated batch ${batchId} payment method to ${paymentMethod}`);
+
+  successResponse(
+    res,
+    {
+      batch,
+      updatedPayments: await Payment.countDocuments({ batchId }),
+    },
+    `Batch payment method updated to ${paymentMethod}`
+  );
+});
+
 // @desc    Update payment status
 // @route   PUT /api/payments/:paymentId/status
 // @access  Public
@@ -606,6 +671,7 @@ module.exports = {
   getPaymentsByBatch,
   processPaymentBatch,
   getPaymentStats,
+  updateBatchPaymentMethod,
   updatePaymentStatus,
   syncWithPayPal,
   getAccountBalance,

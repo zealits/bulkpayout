@@ -89,6 +89,19 @@ export const syncWithPayPal = async (batchId) => {
   }
 };
 
+// Update batch payment method
+export const updateBatchPaymentMethod = async (batchId, paymentMethod, config = {}) => {
+  try {
+    const response = await api.put(`/payments/batches/${batchId}/payment-method`, {
+      paymentMethod,
+      config,
+    });
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Get PayPal account balance
 export const getAccountBalance = async () => {
   try {

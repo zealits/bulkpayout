@@ -17,6 +17,14 @@ const paymentBatchSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Payment method configuration
+    paymentMethod: {
+      type: String,
+      required: true,
+      enum: ["paypal", "giftogram", "bank_transfer"],
+      default: "paypal",
+    },
+
     // Batch statistics
     totalPayments: {
       type: Number,
@@ -45,6 +53,17 @@ const paymentBatchSchema = new mongoose.Schema(
       type: String,
     },
     paypalBatchStatus: {
+      type: String,
+    },
+
+    // Giftogram batch details
+    giftogramCampaignId: {
+      type: String,
+    },
+    giftogramMessage: {
+      type: String,
+    },
+    giftogramSubject: {
       type: String,
     },
 

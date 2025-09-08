@@ -28,6 +28,14 @@ const paymentSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Payment method
+    paymentMethod: {
+      type: String,
+      required: true,
+      enum: ["paypal", "giftogram", "bank_transfer"],
+      default: "paypal",
+    },
+
     // Payment status
     status: {
       type: String,
@@ -46,6 +54,23 @@ const paymentSchema = new mongoose.Schema(
       type: String,
     },
     paypalTransactionStatus: {
+      type: String,
+    },
+
+    // Giftogram transaction details
+    giftogramOrderId: {
+      type: String,
+    },
+    giftogramExternalId: {
+      type: String,
+    },
+    giftogramCampaignId: {
+      type: String,
+    },
+    giftogramMessage: {
+      type: String,
+    },
+    giftogramStatus: {
       type: String,
     },
 

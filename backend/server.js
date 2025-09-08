@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
 // Import routes
 const paymentRoutes = require("./routes/paymentRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
+const giftogramRoutes = require("./routes/giftogramRoutes");
 
 // Import middleware
 const errorHandler = require("./middleware/errorHandler");
@@ -36,6 +37,7 @@ mongoose
 // Routes
 app.use("/api/payments", paymentRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/giftogram", giftogramRoutes);
 
 // Health check route
 app.get("/api/health", (req, res) => {

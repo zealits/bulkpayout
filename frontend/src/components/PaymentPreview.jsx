@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { processPaymentBatch, getPaymentsByBatch } from "../services/paymentService";
+import { processGiftogramBatch } from "../services/giftogramService";
 import {
   CreditCardIcon,
   PencilIcon,
@@ -8,6 +9,9 @@ import {
   XMarkIcon,
   PlayIcon,
   DocumentDuplicateIcon,
+  GiftIcon,
+  BanknotesIcon,
+  CogIcon,
 } from "@heroicons/react/24/outline";
 import Button from "./ui/Button";
 import Card from "./ui/Card";
@@ -18,6 +22,7 @@ import Badge from "./ui/Badge";
 import Modal from "./ui/Modal";
 import { LoadingOverlay, Spinner } from "./ui/Loading";
 import ErrorDisplay from "./ErrorDisplay";
+import PaymentMethodSelector from "./PaymentMethodSelector";
 
 function PaymentPreview({ data }) {
   const [page, setPage] = useState(0);
@@ -30,6 +35,8 @@ function PaymentPreview({ data }) {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ open: false, index: null });
+  const [paymentMethodModal, setPaymentMethodModal] = useState(false);
+  const [currentPaymentMethod, setCurrentPaymentMethod] = useState("paypal");
 
   // If data is from upload result, extract batch info
   useEffect(() => {
@@ -37,6 +44,7 @@ function PaymentPreview({ data }) {
       if (data.batch) {
         // Data from upload result
         setBatchInfo(data.batch);
+        setCurrentPaymentMethod(data.batch.paymentMethod || "paypal");
         loadPayments(data.batch.batchId);
       } else if (Array.isArray(data)) {
         // Legacy data array
@@ -116,13 +124,38 @@ function PaymentPreview({ data }) {
     setSuccessMessage(null);
 
     try {
-      const response = await processPaymentBatch(batchInfo.batchId, {
-        email_subject: "You have a payout!",
-        email_message: "You have received a payout! Thanks for using our service!",
-      });
+      let response;
+
+      if (currentPaymentMethod === "giftogram") {
+        // Process with Giftogram
+        response = await processGiftogramBatch(batchInfo.batchId, {
+          campaignId: batchInfo.giftogramCampaignId,
+          message: batchInfo.giftogramMessage || "Thank you for your hard work! Enjoy your gift card!",
+          subject: batchInfo.giftogramSubject || "You have received a gift card!",
+        });
+      } else if (currentPaymentMethod === "paypal") {
+        // Process with PayPal
+        response = await processPaymentBatch(batchInfo.batchId, {
+          email_subject: "You have a payout!",
+          email_message: "You have received a payout! Thanks for using our service!",
+        });
+      } else {
+        throw new Error("Unsupported payment method");
+      }
 
       if (response.success) {
-        setSuccessMessage("Payments processed successfully! All recipients will receive their payments.");
+        const methodName = currentPaymentMethod === "giftogram" ? "gift cards" : "payments";
+
+        // Handle different success scenarios for Giftogram
+        if (currentPaymentMethod === "giftogram" && response.data?.hasFailures) {
+          const { successful, failed } = response.data.summary;
+          setSuccessMessage(
+            `${methodName} processing completed: ${successful} successful, ${failed} failed. Check individual statuses below.`
+          );
+        } else {
+          setSuccessMessage(`${methodName} processed successfully! All recipients will receive their ${methodName}.`);
+        }
+
         // Reload payments to get updated status
         await loadPayments(batchInfo.batchId);
       }
@@ -135,7 +168,13 @@ function PaymentPreview({ data }) {
   };
 
   const getTotalAmount = () => {
-    return displayData.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+    return displayData.reduce((sum, item) => {
+      const originalAmount = parseFloat(item.amount) || 0;
+      if (currentPaymentMethod === "giftogram") {
+        return sum + getGiftogramAdjustedAmount(originalAmount);
+      }
+      return sum + originalAmount;
+    }, 0);
   };
 
   const getStatusVariant = (status) => {
@@ -151,13 +190,102 @@ function PaymentPreview({ data }) {
     }
   };
 
+  // Helper function to calculate Giftogram adjusted amount (rounded to nearest $5)
+  const getGiftogramAdjustedAmount = (amount) => {
+    const numAmount = parseFloat(amount) || 0;
+    return Math.round(numAmount / 5) * 5;
+  };
+
+  // Helper function to format amount display for Giftogram
+  const formatAmountForDisplay = (item) => {
+    const originalAmount = parseFloat(item.amount) || 0;
+
+    if (currentPaymentMethod === "giftogram") {
+      const adjustedAmount = getGiftogramAdjustedAmount(originalAmount);
+      if (adjustedAmount !== originalAmount) {
+        return (
+          <div className="space-y-1">
+            <div className="line-through text-gray-400 text-sm">${originalAmount.toFixed(2)}</div>
+            <div className="text-green-600 font-medium">${adjustedAmount.toFixed(2)}</div>
+          </div>
+        );
+      }
+    }
+
+    return `$${originalAmount.toFixed(2)}`;
+  };
+
+  const handlePaymentMethodChange = (methodData) => {
+    setCurrentPaymentMethod(methodData.paymentMethod);
+    setBatchInfo(methodData.batch);
+    setPaymentMethodModal(false);
+    setSuccessMessage(`Payment method updated to ${getPaymentMethodName(methodData.paymentMethod)}`);
+  };
+
+  const getPaymentMethodName = (method) => {
+    switch (method) {
+      case "paypal":
+        return "PayPal";
+      case "giftogram":
+        return "Gift Cards";
+      case "bank_transfer":
+        return "Bank Transfer";
+      default:
+        return method;
+    }
+  };
+
+  const getPaymentMethodIcon = (method) => {
+    switch (method) {
+      case "paypal":
+        return <CreditCardIcon className="w-5 h-5" />;
+      case "giftogram":
+        return <GiftIcon className="w-5 h-5" />;
+      case "bank_transfer":
+        return <BanknotesIcon className="w-5 h-5" />;
+      default:
+        return <CreditCardIcon className="w-5 h-5" />;
+    }
+  };
+
+  const getPaymentMethodDescription = () => {
+    switch (currentPaymentMethod) {
+      case "paypal":
+        return "Review and edit payment details before processing with PayPal";
+      case "giftogram":
+        return "Review and configure gift card details before sending via Giftogram";
+      case "bank_transfer":
+        return "Review bank transfer details before processing";
+      default:
+        return "Review payment details before processing";
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payment Preview</h1>
-        <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Review and edit payment details before processing with PayPal
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payment Preview</h1>
+            <p className="mt-2 text-gray-600 dark:text-gray-400">{getPaymentMethodDescription()}</p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              {getPaymentMethodIcon(currentPaymentMethod)}
+              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                {getPaymentMethodName(currentPaymentMethod)}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaymentMethodModal(true)}
+              icon={<CogIcon className="w-4 h-4" />}
+            >
+              Change Method
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -229,7 +357,9 @@ function PaymentPreview({ data }) {
           icon={<PlayIcon className="w-5 h-5" />}
           className="flex-1 sm:flex-none"
         >
-          {processing ? "Processing..." : "Process All Payments"}
+          {processing
+            ? `Processing ${currentPaymentMethod === "giftogram" ? "Gift Cards" : "Payments"}...`
+            : `Process All ${currentPaymentMethod === "giftogram" ? "Gift Cards" : "Payments"}`}
         </Button>
 
         <Button
@@ -302,9 +432,7 @@ function PaymentPreview({ data }) {
                           className="min-w-[120px]"
                         />
                       ) : (
-                        <div className="font-semibold text-gray-900 dark:text-white">
-                          ${parseFloat(row.amount || 0).toFixed(2)}
-                        </div>
+                        <div className="font-semibold text-gray-900 dark:text-white">{formatAmountForDisplay(row)}</div>
                       )}
                     </Table.Cell>
                     <Table.Cell>
@@ -425,6 +553,16 @@ function PaymentPreview({ data }) {
         <p className="text-gray-600 dark:text-gray-400">
           Are you sure you want to delete this payment? This action cannot be undone.
         </p>
+      </Modal>
+
+      {/* Payment Method Selection Modal */}
+      <Modal
+        isOpen={paymentMethodModal}
+        onClose={() => setPaymentMethodModal(false)}
+        title="Select Payment Method"
+        size="xl"
+      >
+        <PaymentMethodSelector batch={batchInfo} onMethodChange={handlePaymentMethodChange} onError={setError} />
       </Modal>
     </div>
   );

@@ -88,37 +88,47 @@ function validatePaymentData(payments) {
 
   payments.forEach((payment, index) => {
     const rowErrors = [];
+    const fieldErrors = {};
 
     // Validate name
     if (!payment.recipientName || payment.recipientName.length < 2) {
-      rowErrors.push("Name is required and must be at least 2 characters");
+      const error = "Name is required and must be at least 2 characters";
+      rowErrors.push(error);
+      fieldErrors.recipientName = error;
     }
 
     // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!payment.recipientEmail || !emailRegex.test(payment.recipientEmail)) {
-      rowErrors.push("Valid email address is required");
+      const error = "Valid email address is required";
+      rowErrors.push(error);
+      fieldErrors.recipientEmail = error;
     }
 
     // Validate amount
     if (!payment.amount || payment.amount <= 0) {
-      rowErrors.push("Amount must be greater than 0");
-    }
-
-    if (payment.amount > 10000) {
-      rowErrors.push("Amount cannot exceed $10,000 per transaction");
+      const error = "Amount must be greater than 0";
+      rowErrors.push(error);
+      fieldErrors.amount = error;
+    } else if (payment.amount > 10000) {
+      const error = "Amount cannot exceed $10,000 per transaction";
+      rowErrors.push(error);
+      fieldErrors.amount = error;
     }
 
     // Validate currency
     const supportedCurrencies = ["USD", "EUR", "GBP", "CAD", "AUD"];
     if (!supportedCurrencies.includes(payment.currency.toUpperCase())) {
-      rowErrors.push(`Currency must be one of: ${supportedCurrencies.join(", ")}`);
+      const error = `Currency must be one of: ${supportedCurrencies.join(", ")}`;
+      rowErrors.push(error);
+      fieldErrors.currency = error;
     }
 
     if (rowErrors.length > 0) {
       errors.push({
         row: payment.rowNumber,
         errors: rowErrors,
+        fieldErrors: fieldErrors,
         data: payment,
       });
     } else {

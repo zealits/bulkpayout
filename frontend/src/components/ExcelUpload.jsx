@@ -47,6 +47,9 @@ function ExcelUpload({ onDataUpload }) {
 
   const validateFile = async (file) => {
     setLoading(true);
+    setError(null);
+    setValidationErrors([]);
+
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -59,15 +62,43 @@ function ExcelUpload({ onDataUpload }) {
         if (validationReport.isValid) {
           setParsedData(preview);
           setValidationErrors([]);
+          setError(null);
           onDataUpload(preview);
         } else {
-          setValidationErrors(validationReport.errors);
-          setError("Please fix the validation errors before proceeding");
+          // File parsed successfully but has validation errors
+          setValidationErrors(validationReport.errors || []);
+          setParsedData(null);
+          setError(null); // Don't show generic error, show detailed validation errors instead
         }
+      } else {
+        // Handle case where response.success is false
+        setError("Failed to validate file: " + (response.message || "Unknown error"));
+        setValidationErrors([]);
       }
     } catch (err) {
-      setError("Error validating file: " + err.message);
-      setValidationErrors(err.errors || []);
+      console.error("Validation error:", err);
+
+      // Check if this is a validation error response (400 status with errors)
+      if (err.status === 400 && err.errors) {
+        // This is likely a validation error response from the server
+        if (Array.isArray(err.errors)) {
+          setValidationErrors(err.errors);
+          setError(null);
+        } else {
+          // Check if err.errors contains validationReport
+          if (err.errors.validationReport && err.errors.validationReport.errors) {
+            setValidationErrors(err.errors.validationReport.errors);
+            setError(null);
+          } else {
+            setError("Validation failed: " + err.message);
+            setValidationErrors([]);
+          }
+        }
+      } else {
+        // This is a different type of error (network, parsing, etc.)
+        setError("Error validating file: " + err.message);
+        setValidationErrors([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -211,14 +242,68 @@ function ExcelUpload({ onDataUpload }) {
       )}
 
       {validationErrors.length > 0 && (
-        <Alert variant="warning" title={`Validation Errors (${validationErrors.length})`}>
-          <ul className="mt-2 space-y-1">
-            {validationErrors.map((error, index) => (
-              <li key={index} className="text-sm">
-                <span className="font-medium">Row {error.row}:</span> {error.errors.join(", ")}
-              </li>
-            ))}
-          </ul>
+        <Alert variant="warning" title={`Validation Errors Found (${validationErrors.length} rows affected)`}>
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              Please fix the following errors in your file before proceeding:
+            </p>
+            <div className="max-h-60 overflow-y-auto space-y-2">
+              {validationErrors.map((error, index) => (
+                <div
+                  key={index}
+                  className="bg-amber-50 dark:bg-amber-900/20 p-3 rounded-md border border-amber-200 dark:border-amber-700"
+                >
+                  <div className="flex items-start space-x-2">
+                    <ExclamationCircleIcon className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="font-medium text-amber-800 dark:text-amber-200 text-sm">Row {error.row}</div>
+                      <div className="mt-1 space-y-1">
+                        {error.fieldErrors
+                          ? // Show field-specific errors if available
+                            Object.entries(error.fieldErrors).map(([field, fieldError]) => (
+                              <div key={field} className="text-xs text-amber-700 dark:text-amber-300">
+                                <span className="font-medium capitalize">
+                                  {field.replace(/([A-Z])/g, " $1").trim()}:
+                                </span>{" "}
+                                {fieldError}
+                              </div>
+                            ))
+                          : // Fallback to general errors
+                            error.errors.map((errorMsg, errorIndex) => (
+                              <div key={errorIndex} className="text-xs text-amber-700 dark:text-amber-300">
+                                {errorMsg}
+                              </div>
+                            ))}
+                      </div>
+                      {error.data && (
+                        <div className="mt-2 p-2 bg-white dark:bg-gray-800 rounded border text-xs">
+                          <div className="font-medium text-gray-600 dark:text-gray-400 mb-1">Current data:</div>
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-gray-700 dark:text-gray-300">
+                            <div>
+                              <span className="font-medium">Name:</span> "{error.data.recipientName || "N/A"}"
+                            </div>
+                            <div>
+                              <span className="font-medium">Email:</span> "{error.data.recipientEmail || "N/A"}"
+                            </div>
+                            <div>
+                              <span className="font-medium">Amount:</span> "{error.data.amount || "N/A"}"
+                            </div>
+                            <div>
+                              <span className="font-medium">Currency:</span> "{error.data.currency || "N/A"}"
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="text-sm text-amber-700 dark:text-amber-300 border-t border-amber-200 dark:border-amber-700 pt-2">
+              <strong>Tip:</strong> Download the template to see the correct format, or fix the errors above and upload
+              again.
+            </div>
+          </div>
         </Alert>
       )}
 

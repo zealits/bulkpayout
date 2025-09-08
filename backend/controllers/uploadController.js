@@ -103,9 +103,10 @@ const validateExcel = asyncHandler(async (req, res) => {
   };
 
   if (validationReport.isValid) {
-    successResponse(res, response, "File validation completed successfully");
+    return successResponse(res, response, "File validation completed successfully");
   } else {
-    validationErrorResponse(res, response, "File contains validation errors");
+    // Always return success response but with validation errors for frontend to handle
+    return successResponse(res, response, `File contains ${validationReport.errors.length} validation error(s)`);
   }
 });
 
@@ -126,7 +127,7 @@ const getUploadTemplate = asyncHandler(async (req, res) => {
       {
         name: "Jane Smith",
         email: "jane@example.com",
-        amount: 75.5,
+        amount: 75,
         notes: "Consultation fee",
         currency: "USD",
       },

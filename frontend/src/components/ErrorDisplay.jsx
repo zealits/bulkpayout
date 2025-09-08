@@ -1,216 +1,91 @@
 import React from "react";
-import {
-  Alert,
-  AlertTitle,
-  Box,
-  Typography,
-  Button,
-  Chip,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Divider,
-} from "@mui/material";
-import {
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-  ExpandMore as ExpandMoreIcon,
-  Refresh as RefreshIcon,
-  ContactSupport as ContactIcon,
-  AccountBalance as AccountIcon,
-  Check as CheckIcon,
-} from "@mui/icons-material";
+import { ExclamationTriangleIcon, ExclamationCircleIcon, ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import Button from "./ui/Button";
+import Alert from "./ui/Alert";
+import Card from "./ui/Card";
 
-function ErrorDisplay({ error, onRetry, onClose, title }) {
+function ErrorDisplay({ error, onRetry, onClose, title = "Error", showDetails = true }) {
   if (!error) return null;
 
-  // Extract error information
-  const errorMessage = error.message || error.error || "An error occurred";
-  const errorDetails = error.details || {};
-  const suggestion = errorDetails.suggestion || error.suggestion || "";
-  const action = errorDetails.action || error.action || "";
-  const severity = errorDetails.severity || error.severity || "error";
-  const retryable = errorDetails.retryable !== undefined ? errorDetails.retryable : error.retryable;
-  const paypalCode = errorDetails.details?.code || errorDetails.code || "";
-  const paypalMessage = errorDetails.details?.paypal_message || errorDetails.paypal_message || "";
-
-  // Get appropriate icon and color based on severity
-  const getSeverityConfig = (severity) => {
+  const getErrorVariant = (severity) => {
     switch (severity) {
       case "warning":
-        return {
-          severity: "warning",
-          icon: <WarningIcon />,
-          color: "warning.main",
-        };
+        return "warning";
       case "info":
-        return {
-          severity: "info",
-          icon: <InfoIcon />,
-          color: "info.main",
-        };
-      case "error":
+        return "info";
       default:
-        return {
-          severity: "error",
-          icon: <ErrorIcon />,
-          color: "error.main",
-        };
+        return "error";
     }
   };
 
-  const severityConfig = getSeverityConfig(severity);
-
-  // Get action-specific suggestions
-  const getActionGuidance = (action) => {
-    const guidelines = {
-      "Add funds to your PayPal account": {
-        icon: <AccountIcon />,
-        steps: [
-          "Log in to your PayPal account",
-          "Go to 'Wallet' or 'Balance'",
-          "Click 'Add money' or 'Transfer from bank'",
-          "Add sufficient funds for your payouts",
-          "Wait for the transfer to complete (usually 1-3 business days)",
-        ],
-      },
-      "Contact PayPal support": {
-        icon: <ContactIcon />,
-        steps: [
-          "Log in to your PayPal account",
-          "Go to 'Help & Contact'",
-          "Select 'Contact Us'",
-          "Choose 'Business' if you have a business account",
-          "Explain the payout limitation issue",
-        ],
-      },
-      "Verify PayPal business account": {
-        icon: <CheckIcon />,
-        steps: [
-          "Log in to your PayPal business account",
-          "Complete business verification process",
-          "Provide required business documents",
-          "Wait for PayPal to review and approve",
-          "Enable payout permissions in account settings",
-        ],
-      },
-      "Check PayPal API credentials": {
-        icon: <ErrorIcon />,
-        steps: [
-          "Verify your Client ID and Secret are correct",
-          "Check if credentials haven't expired",
-          "Ensure you're using the right environment (sandbox/live)",
-          "Regenerate credentials if necessary",
-          "Update your application settings",
-        ],
-      },
-    };
-
-    return guidelines[action] || null;
+  const getErrorIcon = (severity) => {
+    switch (severity) {
+      case "warning":
+        return ExclamationTriangleIcon;
+      default:
+        return ExclamationCircleIcon;
+    }
   };
 
-  const actionGuidance = getActionGuidance(action);
+  const ErrorIcon = getErrorIcon(error.severity);
 
   return (
-    <Alert
-      severity={severityConfig.severity}
-      onClose={onClose}
-      sx={{ mb: 2 }}
-      action={
-        <Box sx={{ display: "flex", gap: 1 }}>
-          {retryable && onRetry && (
-            <Button size="small" startIcon={<RefreshIcon />} onClick={onRetry} color="inherit" variant="outlined">
-              Retry
-            </Button>
-          )}
-        </Box>
-      }
-    >
-      <AlertTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        {severityConfig.icon}
-        {title || "Payment Processing Issue"}
-        {paypalCode && <Chip label={`PayPal: ${paypalCode}`} size="small" variant="outlined" sx={{ ml: 1 }} />}
-      </AlertTitle>
+    <Card className="border-l-4 border-l-red-500">
+      <div className="p-6">
+        <div className="flex items-start">
+          <div className="flex-shrink-0">
+            <ErrorIcon className="w-6 h-6 text-red-600" />
+          </div>
+          <div className="ml-3 flex-1">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{title}</h3>
+            <div className="mt-2 text-gray-600 dark:text-gray-300">
+              <p className="mb-3">{error.message}</p>
 
-      <Typography variant="body1" sx={{ mb: 2 }}>
-        {errorMessage}
-      </Typography>
-
-      {suggestion && (
-        <Typography variant="body2" sx={{ mb: 2, fontStyle: "italic" }}>
-          💡 {suggestion}
-        </Typography>
-      )}
-
-      {action && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
-            Recommended Action:
-          </Typography>
-          <Chip label={action} color={severity === "error" ? "error" : "primary"} variant="outlined" sx={{ mb: 1 }} />
-        </Box>
-      )}
-
-      {actionGuidance && (
-        <Accordion sx={{ mt: 2 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              {actionGuidance.icon}
-              <Typography variant="subtitle2">Step-by-step Guide</Typography>
-            </Box>
-          </AccordionSummary>
-          <AccordionDetails>
-            <List dense>
-              {actionGuidance.steps.map((step, index) => (
-                <ListItem key={index}>
-                  <ListItemIcon sx={{ minWidth: 32 }}>
-                    <Typography variant="body2" color="primary" sx={{ fontWeight: "bold" }}>
-                      {index + 1}
-                    </Typography>
-                  </ListItemIcon>
-                  <ListItemText primary={step} primaryTypographyProps={{ variant: "body2" }} />
-                </ListItem>
-              ))}
-            </List>
-          </AccordionDetails>
-        </Accordion>
-      )}
-
-      {/* Technical Details (for debugging) */}
-      {(paypalMessage || errorDetails.originalError) && (
-        <Accordion sx={{ mt: 1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography variant="caption" color="text.secondary">
-              Technical Details
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Box sx={{ bgcolor: "grey.50", p: 2, borderRadius: 1 }}>
-              {paypalMessage && (
-                <Typography variant="caption" sx={{ display: "block", mb: 1 }}>
-                  <strong>PayPal Message:</strong> {paypalMessage}
-                </Typography>
+              {error.suggestion && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 mb-3">
+                  <p className="text-sm text-blue-800 dark:text-blue-200">
+                    <strong>Suggestion:</strong> {error.suggestion}
+                  </p>
+                </div>
               )}
-              {errorDetails.originalError && (
-                <Typography variant="caption" sx={{ display: "block" }}>
-                  <strong>System Error:</strong> {errorDetails.originalError}
-                </Typography>
+
+              {showDetails && error.details && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+                    View technical details
+                  </summary>
+                  <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded border text-sm">
+                    <pre className="whitespace-pre-wrap text-gray-600 dark:text-gray-400">
+                      {typeof error.details === "string" ? error.details : JSON.stringify(error.details, null, 2)}
+                    </pre>
+                  </div>
+                </details>
               )}
-              {errorDetails.details?.debug_id && (
-                <Typography variant="caption" sx={{ display: "block", mt: 1 }}>
-                  <strong>Debug ID:</strong> {errorDetails.details.debug_id}
-                </Typography>
+
+              {(error.helpText || error.help_text) && (
+                <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg">
+                  <p className="text-sm text-yellow-800 dark:text-yellow-200">{error.helpText || error.help_text}</p>
+                </div>
               )}
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-      )}
-    </Alert>
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row gap-3">
+              {error.retryable && onRetry && (
+                <Button variant="primary" onClick={onRetry} icon={<ArrowPathIcon className="w-4 h-4" />}>
+                  {error.action || "Retry"}
+                </Button>
+              )}
+
+              {onClose && (
+                <Button variant="outline" onClick={onClose} icon={<XMarkIcon className="w-4 h-4" />}>
+                  Dismiss
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 

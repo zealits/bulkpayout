@@ -2,31 +2,18 @@ import React, { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { uploadExcelFile, validateExcelFile } from "../services/uploadService";
 import {
-  Box,
-  Paper,
-  Typography,
-  Button,
-  Alert,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Chip,
-  Grid,
-  Card,
-  CardContent,
-  CardHeader,
-} from "@mui/material";
-import {
-  CloudUpload as UploadIcon,
-  Description as FileIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Download as DownloadIcon,
-} from "@mui/icons-material";
+  CloudArrowUpIcon,
+  DocumentIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
+  ArrowDownTrayIcon,
+} from "@heroicons/react/24/outline";
+import Button from "./ui/Button";
+import Card from "./ui/Card";
+import Alert from "./ui/Alert";
+import Table from "./ui/Table";
+import Badge from "./ui/Badge";
+import { LoadingOverlay, Spinner } from "./ui/Loading";
 
 function ExcelUpload({ onDataUpload }) {
   const [file, setFile] = useState(null);
@@ -125,96 +112,110 @@ function ExcelUpload({ onDataUpload }) {
   };
 
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
-        Upload Excel File
-      </Typography>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="body1" color="text.secondary">
-          Upload an Excel file (.xlsx, .xls) or CSV file with payment details. Required columns: email, amount, name
-        </Typography>
-        <Button variant="outlined" size="small" href="/sample-template.csv" download startIcon={<DownloadIcon />}>
-          Download Template
-        </Button>
-      </Box>
-
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper
-            {...getRootProps()}
-            sx={{
-              p: 4,
-              textAlign: "center",
-              cursor: "pointer",
-              border: "2px dashed",
-              borderColor: isDragActive ? "primary.main" : "grey.300",
-              backgroundColor: isDragActive ? "action.hover" : "background.paper",
-              "&:hover": {
-                borderColor: "primary.main",
-                backgroundColor: "action.hover",
-              },
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Upload Excel File</h1>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-2">
+          <p className="text-gray-600 dark:text-gray-400">
+            Upload an Excel file (.xlsx, .xls) or CSV file with payment details. Required columns: email, amount, name
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<ArrowDownTrayIcon className="w-4 h-4" />}
+            className="mt-2 sm:mt-0 sm:ml-4"
+            onClick={() => {
+              const link = document.createElement("a");
+              link.href = "/sample-template.csv";
+              link.download = "sample-template.csv";
+              link.click();
             }}
           >
-            <input {...getInputProps()} />
-            <UploadIcon sx={{ fontSize: 48, color: "primary.main", mb: 2 }} />
-            <Typography variant="h6" gutterBottom>
-              {isDragActive ? "Drop the file here" : "Drag & drop file here"}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              or click to select file
-            </Typography>
-            <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-              Supports .xlsx, .xls, .csv files
-            </Typography>
-          </Paper>
-        </Grid>
+            Download Template
+          </Button>
+        </div>
+      </div>
 
-        <Grid item xs={12} md={6}>
-          {file && (
-            <Card>
-              <CardHeader title="File Details" avatar={<FileIcon color="primary" />} />
-              <CardContent>
-                <Typography variant="body2" gutterBottom>
-                  <strong>Name:</strong> {file.name}
-                </Typography>
-                <Typography variant="body2" gutterBottom>
-                  <strong>Size:</strong> {getFileSize(file.size)}
-                </Typography>
-                <Typography variant="body2" gutterBottom>
-                  <strong>Type:</strong> {file.type || "Unknown"}
-                </Typography>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Dropzone */}
+        <Card className="p-0 overflow-hidden">
+          <div
+            {...getRootProps()}
+            className={`
+              p-8 text-center cursor-pointer border-2 border-dashed transition-all duration-200
+              ${
+                isDragActive
+                  ? "border-primary-400 bg-primary-50 dark:bg-primary-900/20"
+                  : "border-gray-300 dark:border-gray-600 hover:border-primary-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+              }
+            `}
+          >
+            <input {...getInputProps()} />
+            <CloudArrowUpIcon
+              className={`
+              w-12 h-12 mx-auto mb-4 transition-colors duration-200
+              ${isDragActive ? "text-primary-600" : "text-gray-400"}
+            `}
+            />
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+              {isDragActive ? "Drop the file here" : "Drag & drop file here"}
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-2">or click to select file</p>
+            <p className="text-sm text-gray-500 dark:text-gray-500">Supports .xlsx, .xls, .csv files (Max: 10MB)</p>
+          </div>
+        </Card>
+
+        {/* File Details */}
+        {file && (
+          <Card>
+            <Card.Header title="File Details" actions={<DocumentIcon className="w-6 h-6 text-primary-600" />} />
+            <Card.Content>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Name:</span>
+                  <span className="text-sm text-gray-900 dark:text-white truncate ml-2">{file.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Size:</span>
+                  <span className="text-sm text-gray-900 dark:text-white">{getFileSize(file.size)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Type:</span>
+                  <span className="text-sm text-gray-900 dark:text-white">{file.type || "Unknown"}</span>
+                </div>
                 {parsedData && (
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Rows:</strong> {parsedData.length}
-                  </Typography>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Rows:</span>
+                    <Badge variant="primary">{parsedData.length}</Badge>
+                  </div>
                 )}
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
-      </Grid>
+              </div>
+            </Card.Content>
+          </Card>
+        )}
+      </div>
 
       {loading && (
-        <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
-          <CircularProgress />
-        </Box>
+        <Card className="p-8">
+          <div className="flex flex-col items-center space-y-4">
+            <Spinner size="lg" />
+            <p className="text-gray-600 dark:text-gray-400">Processing file...</p>
+          </div>
+        </Card>
       )}
 
       {error && (
-        <Alert severity="error" sx={{ mt: 3 }}>
+        <Alert variant="error" title="Upload Error">
           {error}
         </Alert>
       )}
 
       {validationErrors.length > 0 && (
-        <Alert severity="warning" sx={{ mt: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Validation Errors ({validationErrors.length})
-          </Typography>
-          <ul style={{ margin: 0, paddingLeft: "20px" }}>
+        <Alert variant="warning" title={`Validation Errors (${validationErrors.length})`}>
+          <ul className="mt-2 space-y-1">
             {validationErrors.map((error, index) => (
-              <li key={index}>
-                Row {error.row}: {error.errors.join(", ")}
+              <li key={index} className="text-sm">
+                <span className="font-medium">Row {error.row}:</span> {error.errors.join(", ")}
               </li>
             ))}
           </ul>
@@ -222,63 +223,71 @@ function ExcelUpload({ onDataUpload }) {
       )}
 
       {uploadResult && (
-        <Alert severity="success" sx={{ mt: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            File Uploaded Successfully!
-          </Typography>
-          <Typography variant="body2">
-            Batch ID: {uploadResult.batch.batchId}
-            <br />
-            Total Payments: {uploadResult.batch.totalPayments}
-            <br />
-            Total Amount: ${uploadResult.batch.totalAmount.toFixed(2)}
-          </Typography>
+        <Alert variant="success" title="File Uploaded Successfully!">
+          <div className="mt-2 space-y-1">
+            <p>
+              <span className="font-medium">Batch ID:</span> {uploadResult.batch.batchId}
+            </p>
+            <p>
+              <span className="font-medium">Total Payments:</span> {uploadResult.batch.totalPayments}
+            </p>
+            <p>
+              <span className="font-medium">Total Amount:</span> ${uploadResult.batch.totalAmount.toFixed(2)}
+            </p>
+          </div>
         </Alert>
       )}
 
       {parsedData && validationErrors.length === 0 && (
-        <Box sx={{ mt: 3 }}>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-            <Typography variant="h6">Data Preview ({parsedData.length} rows)</Typography>
-            <Button variant="contained" color="primary" onClick={handleProcessPayments} startIcon={<CheckIcon />}>
-              Process Payments
-            </Button>
-          </Box>
-
-          <TableContainer component={Paper}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  {Object.keys(parsedData[0] || {}).map((header) => (
-                    <TableCell key={header} sx={{ fontWeight: "bold" }}>
-                      {header}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {parsedData.slice(0, 10).map((row, index) => (
-                  <TableRow key={index}>
-                    {Object.values(row).map((value, cellIndex) => (
-                      <TableCell key={cellIndex}>{typeof value === "number" ? value.toFixed(2) : value}</TableCell>
+        <Card>
+          <Card.Header
+            title={`Data Preview (${parsedData.length} rows)`}
+            actions={
+              <Button
+                variant="primary"
+                icon={<CheckCircleIcon className="w-4 h-4" />}
+                onClick={handleProcessPayments}
+                loading={loading}
+              >
+                Process Payments
+              </Button>
+            }
+          />
+          <Card.Content className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <Table.Header>
+                  <Table.Row>
+                    {Object.keys(parsedData[0] || {}).map((header) => (
+                      <Table.Head key={header}>{header}</Table.Head>
                     ))}
-                  </TableRow>
-                ))}
-                {parsedData.length > 10 && (
-                  <TableRow>
-                    <TableCell colSpan={Object.keys(parsedData[0] || {}).length} align="center">
-                      <Typography variant="body2" color="text.secondary">
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {parsedData.slice(0, 10).map((row, index) => (
+                    <Table.Row key={index}>
+                      {Object.values(row).map((value, cellIndex) => (
+                        <Table.Cell key={cellIndex}>{typeof value === "number" ? value.toFixed(2) : value}</Table.Cell>
+                      ))}
+                    </Table.Row>
+                  ))}
+                  {parsedData.length > 10 && (
+                    <Table.Row>
+                      <Table.Cell
+                        colSpan={Object.keys(parsedData[0] || {}).length}
+                        className="text-center py-4 text-gray-500 dark:text-gray-400"
+                      >
                         Showing first 10 rows of {parsedData.length} total rows
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Box>
+                      </Table.Cell>
+                    </Table.Row>
+                  )}
+                </Table.Body>
+              </Table>
+            </div>
+          </Card.Content>
+        </Card>
       )}
-    </Box>
+    </div>
   );
 }
 

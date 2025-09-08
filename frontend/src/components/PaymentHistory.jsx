@@ -1,52 +1,26 @@
 import React, { useState, useEffect } from "react";
 import { getPaymentBatches, getPaymentStats, syncWithPayPal, getPaymentBatch } from "../services/paymentService";
 import {
-  Box,
-  Typography,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
-  Chip,
-  Grid,
-  Card,
-  CardContent,
-  CardHeader,
-  TextField,
-  InputAdornment,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Button,
-  IconButton,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Alert,
-  CircularProgress,
-  Stack,
-} from "@mui/material";
-import {
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  Download as DownloadIcon,
-  Refresh as RefreshIcon,
-  Receipt as ReceiptIcon,
-  Payment as PaymentIcon,
-  Schedule as ScheduleIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Pending as PendingIcon,
-  Sync as SyncIcon,
-  Visibility as ViewIcon,
-} from "@mui/icons-material";
+  MagnifyingGlassIcon,
+  FunnelIcon,
+  ArrowDownTrayIcon,
+  ArrowPathIcon,
+  ReceiptPercentIcon,
+  CreditCardIcon,
+  ClockIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
+  EyeIcon,
+  ArrowsUpDownIcon,
+} from "@heroicons/react/24/outline";
+import Button from "./ui/Button";
+import Card from "./ui/Card";
+import Alert from "./ui/Alert";
+import Table from "./ui/Table";
+import Input from "./ui/Input";
+import Badge from "./ui/Badge";
+import Modal from "./ui/Modal";
+import { LoadingOverlay, Spinner } from "./ui/Loading";
 
 function PaymentHistory() {
   const [page, setPage] = useState(0);
@@ -93,80 +67,6 @@ function PaymentHistory() {
     }
   };
 
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case "completed":
-        return <CheckIcon color="success" />;
-      case "pending":
-        return <PendingIcon color="warning" />;
-      case "failed":
-        return <ErrorIcon color="error" />;
-      default:
-        return <ScheduleIcon color="info" />;
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "completed":
-        return "success";
-      case "pending":
-        return "warning";
-      case "failed":
-        return "error";
-      default:
-        return "default";
-    }
-  };
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const filteredData = paymentBatches.filter((batch) => {
-    const matchesSearch =
-      batch.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      batch.batchId.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesStatus = statusFilter === "all" || batch.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  const getTotalAmount = () => {
-    return stats?.batchStats?.totalAmount || 0;
-  };
-
-  const getStatusCounts = () => {
-    const counts = { completed: 0, pending: 0, failed: 0 };
-    filteredData.forEach((batch) => {
-      if (batch.status === "completed") counts.completed++;
-      else if (batch.status === "processing" || batch.status === "uploaded") counts.pending++;
-      else counts.failed++;
-    });
-    return counts;
-  };
-
-  const handleExportData = () => {
-    // Implement CSV export functionality
-    console.log("Exporting payment history data...");
-  };
-
   const handleRefresh = () => {
     loadPaymentHistory();
     loadStats();
@@ -182,7 +82,6 @@ function PaymentHistory() {
           type: "success",
           text: `Successfully synced with PayPal. Status: ${response.data.batch.paypalBatchStatus || "Updated"}`,
         });
-        // Refresh the data to show updated statuses
         loadPaymentHistory();
       } else {
         setSyncMessage({
@@ -220,396 +119,435 @@ function PaymentHistory() {
     setBatchDetails(null);
   };
 
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const filteredData = paymentBatches.filter((batch) => {
+    const matchesSearch =
+      batch.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      batch.batchId.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesStatus = statusFilter === "all" || batch.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const getTotalAmount = () => {
+    return stats?.batchStats?.totalAmount || 0;
+  };
+
+  const getStatusCounts = () => {
+    const counts = { completed: 0, pending: 0, failed: 0 };
+    filteredData.forEach((batch) => {
+      if (batch.status === "completed") counts.completed++;
+      else if (batch.status === "processing" || batch.status === "uploaded") counts.pending++;
+      else counts.failed++;
+    });
+    return counts;
+  };
+
+  const getStatusVariant = (status) => {
+    switch (status) {
+      case "completed":
+        return "success";
+      case "pending":
+      case "processing":
+      case "uploaded":
+        return "warning";
+      case "failed":
+        return "danger";
+      default:
+        return "default";
+    }
+  };
+
+  const getPayPalStatusVariant = (status) => {
+    switch (status) {
+      case "SUCCESS":
+        return "success";
+      case "PENDING":
+        return "warning";
+      default:
+        return "default";
+    }
+  };
+
+  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+  const paginatedData = filteredData.slice(page * rowsPerPage, (page + 1) * rowsPerPage);
+
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
-        Payment History
-      </Typography>
-      <Typography variant="body1" color="text.secondary" paragraph>
-        View and track all processed payments and their current status
-      </Typography>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payment History</h1>
+        <p className="mt-2 text-gray-600 dark:text-gray-400">
+          View and track all processed payments and their current status
+        </p>
+      </div>
 
       {/* Sync Message Alert */}
       {syncMessage && (
-        <Alert severity={syncMessage.type} sx={{ mb: 3 }} onClose={() => setSyncMessage(null)}>
+        <Alert variant={syncMessage.type} onClose={() => setSyncMessage(null)}>
           {syncMessage.text}
         </Alert>
       )}
 
       {/* Summary Cards */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={3}>
-          <Card>
-            <CardHeader title="Total Payments" avatar={<PaymentIcon color="primary" />} />
-            <CardContent>
-              <Typography variant="h4" color="primary">
-                {filteredData.length}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                total payments
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <CreditCardIcon className="w-8 h-8 text-primary-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Payments</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{filteredData.length}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">total payments</p>
+            </div>
+          </div>
+        </Card>
 
-        <Grid item xs={12} md={3}>
-          <Card>
-            <CardHeader title="Total Amount" avatar={<ReceiptIcon color="success" />} />
-            <CardContent>
-              <Typography variant="h4" color="success.main">
-                ${getTotalAmount().toFixed(2)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                total processed
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <ReceiptPercentIcon className="w-8 h-8 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Amount</p>
+              <p className="text-2xl font-bold text-green-600">${getTotalAmount().toFixed(2)}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">total processed</p>
+            </div>
+          </div>
+        </Card>
 
-        <Grid item xs={12} md={3}>
-          <Card>
-            <CardHeader title="Completed" avatar={<CheckIcon color="success" />} />
-            <CardContent>
-              <Typography variant="h4" color="success.main">
-                {getStatusCounts().completed}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                successful payments
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <CheckCircleIcon className="w-8 h-8 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Completed</p>
+              <p className="text-2xl font-bold text-green-600">{getStatusCounts().completed}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">successful payments</p>
+            </div>
+          </div>
+        </Card>
 
-        <Grid item xs={12} md={3}>
-          <Card>
-            <CardHeader title="Pending/Failed" avatar={<PendingIcon color="warning" />} />
-            <CardContent>
-              <Typography variant="h4" color="warning.main">
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <ClockIcon className="w-8 h-8 text-yellow-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Pending/Failed</p>
+              <p className="text-2xl font-bold text-yellow-600">
                 {getStatusCounts().pending + getStatusCounts().failed}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                requires attention
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">requires attention</p>
+            </div>
+          </div>
+        </Card>
+      </div>
 
       {/* Filters and Actions */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
-            <TextField
-              fullWidth
-              placeholder="Search payments..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon />
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </Grid>
+      <Card className="p-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Input
+            placeholder="Search payments..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            icon={<MagnifyingGlassIcon className="w-5 h-5" />}
+          />
 
-          <Grid item xs={12} md={3}>
-            <FormControl fullWidth>
-              <InputLabel>Status</InputLabel>
-              <Select value={statusFilter} label="Status" onChange={(e) => setStatusFilter(e.target.value)}>
-                <MenuItem value="all">All Status</MenuItem>
-                <MenuItem value="completed">Completed</MenuItem>
-                <MenuItem value="pending">Pending</MenuItem>
-                <MenuItem value="failed">Failed</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
+          <div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="all">All Status</option>
+              <option value="completed">Completed</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
 
-          <Grid item xs={12} md={3}>
-            <FormControl fullWidth>
-              <InputLabel>Date Range</InputLabel>
-              <Select value={dateFilter} label="Date Range" onChange={(e) => setDateFilter(e.target.value)}>
-                <MenuItem value="all">All Time</MenuItem>
-                <MenuItem value="today">Today</MenuItem>
-                <MenuItem value="week">This Week</MenuItem>
-                <MenuItem value="month">This Month</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
+          <div>
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="all">All Time</option>
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+            </select>
+          </div>
 
-          <Grid item xs={12} md={2}>
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <Tooltip title="Export Data">
-                <IconButton onClick={handleExportData} color="primary">
-                  <DownloadIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Refresh">
-                <IconButton onClick={handleRefresh} color="primary">
-                  <RefreshIcon />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          </Grid>
-        </Grid>
-      </Paper>
+          <div className="flex space-x-2">
+            <Button variant="outline" icon={<ArrowDownTrayIcon className="w-4 h-4" />} className="flex-1">
+              Export
+            </Button>
+            <Button variant="outline" onClick={handleRefresh} icon={<ArrowPathIcon className="w-4 h-4" />}>
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       {/* Payment History Table */}
-      <Paper sx={{ width: "100%", overflow: "hidden" }}>
-        <TableContainer sx={{ maxHeight: 600 }}>
-          <Table stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>Batch Name</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>Batch ID</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>PayPal Status</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>Total Amount</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>Payments</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>Upload Date</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>Description</TableCell>
-                <TableCell sx={{ fontWeight: "bold" }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((batch) => (
-                <TableRow key={batch.batchId} hover>
-                  <TableCell>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      {getStatusIcon(batch.status)}
-                      <Chip label={batch.status} color={getStatusColor(batch.status)} size="small" variant="outlined" />
-                    </Box>
-                  </TableCell>
-                  <TableCell>{batch.name}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontFamily="monospace">
-                      {batch.batchId}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    {batch.paypalBatchStatus ? (
-                      <Chip
-                        label={batch.paypalBatchStatus}
-                        size="small"
-                        color={
-                          batch.paypalBatchStatus === "SUCCESS"
-                            ? "success"
-                            : batch.paypalBatchStatus === "PENDING"
-                            ? "warning"
-                            : "default"
-                        }
-                        variant="outlined"
-                      />
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        Not synced
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: "bold" }}>
-                      ${batch.totalAmount.toFixed(2)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">{batch.totalPayments} payments</Typography>
-                  </TableCell>
-                  <TableCell>{formatDate(batch.uploadedAt)}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary">
-                      {batch.description}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={1}>
-                      <Tooltip title="Sync with PayPal">
-                        <IconButton
-                          size="small"
+      <LoadingOverlay isLoading={loading}>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto max-w-full">
+            <Table className="min-w-full">
+              <Table.Header>
+                <Table.Row>
+                  <Table.Head>Status</Table.Head>
+                  <Table.Head>Batch Name</Table.Head>
+                  <Table.Head>Batch ID</Table.Head>
+                  <Table.Head>PayPal Status</Table.Head>
+                  <Table.Head>Total Amount</Table.Head>
+                  <Table.Head>Payments</Table.Head>
+                  <Table.Head>Upload Date</Table.Head>
+                  <Table.Head>Actions</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {paginatedData.map((batch) => (
+                  <Table.Row key={batch.batchId}>
+                    <Table.Cell>
+                      <Badge variant={getStatusVariant(batch.status)}>{batch.status}</Badge>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="font-medium text-gray-900 dark:text-white">{batch.name}</div>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{batch.batchId}</code>
+                    </Table.Cell>
+                    <Table.Cell>
+                      {batch.paypalBatchStatus ? (
+                        <Badge variant={getPayPalStatusVariant(batch.paypalBatchStatus)}>
+                          {batch.paypalBatchStatus}
+                        </Badge>
+                      ) : (
+                        <span className="text-gray-500 dark:text-gray-400 text-sm">Not synced</span>
+                      )}
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="font-semibold text-gray-900 dark:text-white">${batch.totalAmount.toFixed(2)}</div>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="text-gray-600 dark:text-gray-400">{batch.totalPayments} payments</div>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="text-gray-600 dark:text-gray-400 text-sm">{formatDate(batch.uploadedAt)}</div>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="flex space-x-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           onClick={() => handleSyncWithPayPal(batch.batchId)}
                           disabled={syncing || !batch.paypalPayoutBatchId}
-                          color="primary"
+                          icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-4 h-4" />}
                         >
-                          {syncing ? <CircularProgress size={16} /> : <SyncIcon />}
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="View Details">
-                        <IconButton size="small" onClick={() => handleViewDetails(batch)} color="info">
-                          <ViewIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                          Sync
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleViewDetails(batch)}
+                          icon={<EyeIcon className="w-4 h-4" />}
+                        >
+                          View
+                        </Button>
+                      </div>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
+          </div>
 
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25, 50]}
-          component="div"
-          count={filteredData.length}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-        />
-      </Paper>
-
-      {filteredData.length === 0 && (
-        <Paper sx={{ p: 4, textAlign: "center", mt: 3 }}>
-          <ReceiptIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
-          <Typography variant="h6" gutterBottom>
-            No payments found
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Try adjusting your search criteria or filters
-          </Typography>
-        </Paper>
-      )}
-
-      {/* Batch Details Dialog */}
-      <Dialog open={detailsOpen} onClose={handleCloseDetails} maxWidth="lg" fullWidth>
-        <DialogTitle>
-          <Typography variant="h6">Batch Details: {selectedBatch?.name}</Typography>
-        </DialogTitle>
-        <DialogContent>
-          {batchDetails ? (
-            <Box>
-              {/* Batch Info */}
-              <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>
-                      Batch Information
-                    </Typography>
-                    <Typography>
-                      <strong>Batch ID:</strong> {batchDetails.batch.batchId}
-                    </Typography>
-                    <Typography>
-                      <strong>Status:</strong> {batchDetails.batch.status}
-                    </Typography>
-                    <Typography>
-                      <strong>PayPal Batch ID:</strong> {batchDetails.batch.paypalPayoutBatchId || "N/A"}
-                    </Typography>
-                    <Typography>
-                      <strong>PayPal Status:</strong> {batchDetails.batch.paypalBatchStatus || "Not synced"}
-                    </Typography>
-                    <Typography>
-                      <strong>Total Amount:</strong> ${batchDetails.batch.totalAmount?.toFixed(2)}
-                    </Typography>
-                    <Typography>
-                      <strong>Total Payments:</strong> {batchDetails.batch.totalPayments}
-                    </Typography>
-                  </Paper>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>
-                      Payment Status Breakdown
-                    </Typography>
-                    <Typography>
-                      <strong>Completed:</strong> {batchDetails.batch.completedPayments || 0}
-                    </Typography>
-                    <Typography>
-                      <strong>Processing:</strong> {batchDetails.batch.processingPayments || 0}
-                    </Typography>
-                    <Typography>
-                      <strong>Failed:</strong> {batchDetails.batch.failedPayments || 0}
-                    </Typography>
-                    <Typography>
-                      <strong>Pending:</strong> {batchDetails.batch.pendingPayments || 0}
-                    </Typography>
-                  </Paper>
-                </Grid>
-              </Grid>
-
-              {/* Individual Payments */}
-              <Typography variant="h6" gutterBottom>
-                Individual Payments
-              </Typography>
-              <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Recipient</TableCell>
-                      <TableCell>Email</TableCell>
-                      <TableCell>Amount</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell>PayPal Status</TableCell>
-                      <TableCell>Transaction ID</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {batchDetails.payments?.map((payment, index) => (
-                      <TableRow key={payment._id || index}>
-                        <TableCell>{payment.recipientName}</TableCell>
-                        <TableCell>{payment.recipientEmail}</TableCell>
-                        <TableCell>${payment.amount?.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Chip
-                            label={payment.status}
-                            size="small"
-                            color={getStatusColor(payment.status)}
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          {payment.paypalTransactionStatus ? (
-                            <Chip
-                              label={payment.paypalTransactionStatus}
-                              size="small"
-                              color={
-                                payment.paypalTransactionStatus === "SUCCESS"
-                                  ? "success"
-                                  : payment.paypalTransactionStatus === "PENDING"
-                                  ? "warning"
-                                  : "error"
-                              }
-                              variant="outlined"
-                            />
-                          ) : (
-                            <Typography variant="body2" color="text.secondary">
-                              N/A
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontFamily="monospace">
-                            {payment.transactionId || "N/A"}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-
-              {/* Sync Button in Dialog */}
-              <Box sx={{ mt: 3, display: "flex", justifyContent: "center" }}>
-                <Button
-                  variant="contained"
-                  startIcon={syncing ? <CircularProgress size={20} /> : <SyncIcon />}
-                  onClick={() => handleSyncWithPayPal(selectedBatch?.batchId)}
-                  disabled={syncing || !selectedBatch?.paypalPayoutBatchId}
-                  color="primary"
-                >
-                  {syncing ? "Syncing..." : "Sync with PayPal"}
-                </Button>
-              </Box>
-            </Box>
-          ) : (
-            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-              <CircularProgress />
-            </Box>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Showing {page * rowsPerPage + 1} to {Math.min((page + 1) * rowsPerPage, filteredData.length)} of{" "}
+                    {filteredData.length} results
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(Math.max(0, page - 1))}
+                    disabled={page === 0}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Page {page + 1} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+                    disabled={page === totalPages - 1}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDetails}>Close</Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+        </Card>
+
+        {filteredData.length === 0 && !loading && (
+          <Card className="p-8 text-center">
+            <ReceiptPercentIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No payments found</h3>
+            <p className="text-gray-600 dark:text-gray-400">Try adjusting your search criteria or filters</p>
+          </Card>
+        )}
+      </LoadingOverlay>
+
+      {/* Batch Details Modal */}
+      <Modal
+        isOpen={detailsOpen}
+        onClose={handleCloseDetails}
+        title={`Batch Details: ${selectedBatch?.name}`}
+        size="6xl"
+      >
+        {batchDetails ? (
+          <div className="space-y-6">
+            {/* Batch Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Batch Information</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">Batch ID:</span>
+                    <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                      {batchDetails.batch.batchId}
+                    </code>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">Status:</span>
+                    <Badge variant={getStatusVariant(batchDetails.batch.status)}>{batchDetails.batch.status}</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">PayPal Batch ID:</span>
+                    <span className="text-gray-900 dark:text-white">
+                      {batchDetails.batch.paypalPayoutBatchId || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">Total Amount:</span>
+                    <span className="font-semibold text-gray-900 dark:text-white">
+                      ${batchDetails.batch.totalAmount?.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Payment Status Breakdown</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">Completed:</span>
+                    <Badge variant="success">{batchDetails.batch.completedPayments || 0}</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">Processing:</span>
+                    <Badge variant="warning">{batchDetails.batch.processingPayments || 0}</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">Failed:</span>
+                    <Badge variant="danger">{batchDetails.batch.failedPayments || 0}</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">Pending:</span>
+                    <Badge variant="warning">{batchDetails.batch.pendingPayments || 0}</Badge>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Individual Payments */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Individual Payments</h3>
+              <div className="max-h-96 overflow-y-auto">
+                <Table>
+                  <Table.Header>
+                    <Table.Row>
+                      <Table.Head>Recipient</Table.Head>
+                      <Table.Head>Email</Table.Head>
+                      <Table.Head>Amount</Table.Head>
+                      <Table.Head>Status</Table.Head>
+                      <Table.Head>PayPal Status</Table.Head>
+                      <Table.Head>Transaction ID</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {batchDetails.payments?.map((payment, index) => (
+                      <Table.Row key={payment._id || index}>
+                        <Table.Cell>{payment.recipientName}</Table.Cell>
+                        <Table.Cell>{payment.recipientEmail}</Table.Cell>
+                        <Table.Cell>${payment.amount?.toFixed(2)}</Table.Cell>
+                        <Table.Cell>
+                          <Badge variant={getStatusVariant(payment.status)}>{payment.status}</Badge>
+                        </Table.Cell>
+                        <Table.Cell>
+                          {payment.paypalTransactionStatus ? (
+                            <Badge variant={getPayPalStatusVariant(payment.paypalTransactionStatus)}>
+                              {payment.paypalTransactionStatus}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-500 dark:text-gray-400 text-sm">N/A</span>
+                          )}
+                        </Table.Cell>
+                        <Table.Cell>
+                          <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                            {payment.transactionId || "N/A"}
+                          </code>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+            </div>
+
+            {/* Sync Button in Modal */}
+            <div className="flex justify-center">
+              <Button
+                variant="primary"
+                icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-5 h-5" />}
+                onClick={() => handleSyncWithPayPal(selectedBatch?.batchId)}
+                disabled={syncing || !selectedBatch?.paypalPayoutBatchId}
+                loading={syncing}
+              >
+                Sync with PayPal
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-center p-8">
+            <Spinner size="lg" />
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 }
 

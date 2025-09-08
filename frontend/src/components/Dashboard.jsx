@@ -1,64 +1,44 @@
 import React, { useState } from "react";
 import {
-  Box,
-  AppBar,
-  Toolbar,
-  Typography,
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  IconButton,
-  Container,
-  Paper,
-  Grid,
-  Card,
-  CardContent,
-  CardHeader,
-  Divider,
-  CircularProgress,
-  Alert,
-  Button,
-} from "@mui/material";
-import {
-  Dashboard as DashboardIcon,
-  Payment as PaymentIcon,
-  Upload as UploadIcon,
-  History as HistoryIcon,
-  AccountBalance as AccountIcon,
-  Menu as MenuIcon,
-  CheckCircle as CheckCircleIcon,
-  Refresh as RefreshIcon,
-} from "@mui/icons-material";
+  HomeIcon,
+  CreditCardIcon,
+  ArrowUpTrayIcon,
+  ClockIcon,
+  BanknotesIcon,
+  Bars3Icon,
+  XMarkIcon,
+  SunIcon,
+  MoonIcon,
+  CheckCircleIcon,
+  ArrowPathIcon,
+} from "@heroicons/react/24/outline";
+import { useTheme } from "../contexts/ThemeContext";
+import Button from "./ui/Button";
+import Card from "./ui/Card";
+import Alert from "./ui/Alert";
+import { LoadingOverlay, Spinner } from "./ui/Loading";
 import ExcelUpload from "./ExcelUpload";
 import PaymentPreview from "./PaymentPreview";
 import PaymentHistory from "./PaymentHistory";
 import ErrorDisplay from "./ErrorDisplay";
 
-const drawerWidth = 240;
-
 const menuItems = [
-  { text: "Dashboard", icon: <DashboardIcon />, component: "dashboard" },
-  { text: "Upload Excel", icon: <UploadIcon />, component: "upload" },
-  { text: "Payment Preview", icon: <PaymentIcon />, component: "preview" },
-  { text: "Payment History", icon: <HistoryIcon />, component: "history" },
-  { text: "Account", icon: <AccountIcon />, component: "account" },
+  { text: "Dashboard", icon: HomeIcon, component: "dashboard" },
+  { text: "Upload Excel", icon: ArrowUpTrayIcon, component: "upload" },
+  { text: "Payment Preview", icon: CreditCardIcon, component: "preview" },
+  { text: "Payment History", icon: ClockIcon, component: "history" },
+  { text: "Account", icon: BanknotesIcon, component: "account" },
 ];
 
 function Dashboard() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState("dashboard");
   const [uploadedData, setUploadedData] = useState(null);
-
-  const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen);
-  };
+  const { isDark, toggleTheme } = useTheme();
 
   const handleMenuClick = (component) => {
     setSelectedComponent(component);
-    setMobileOpen(false);
+    setSidebarOpen(false);
   };
 
   const renderComponent = () => {
@@ -76,167 +56,175 @@ function Dashboard() {
     }
   };
 
-  const drawer = (
-    <Box>
-      <Toolbar>
-        <Typography variant="h6" noWrap component="div" sx={{ fontWeight: "bold" }}>
-          BulkPayout
-        </Typography>
-      </Toolbar>
-      <Divider />
-      <List>
-        {menuItems.map((item) => (
-          <ListItem key={item.text} disablePadding>
-            <ListItemButton
-              selected={selectedComponent === item.component}
-              onClick={() => handleMenuClick(item.component)}
-            >
-              <ListItemIcon>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
-          </ListItem>
-        ))}
-      </List>
-    </Box>
-  );
+  const currentPage = menuItems.find((item) => item.component === selectedComponent);
 
   return (
-    <Box sx={{ display: "flex" }}>
-      <AppBar
-        position="fixed"
-        sx={{
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          ml: { sm: `${drawerWidth}px` },
-        }}
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Sidebar */}
+      <div
+        className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 shadow-lg transform flex-shrink-0
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        transition-transform duration-300 ease-in-out lg:translate-x-0
+      `}
       >
-        <Toolbar>
-          <IconButton
-            color="inherit"
-            aria-label="open drawer"
-            edge="start"
-            onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { sm: "none" } }}
+        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 dark:border-gray-700">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">BulkPayout</h1>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden p-1 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
-            <MenuIcon />
-          </IconButton>
-          <Typography variant="h6" noWrap component="div">
-            {menuItems.find((item) => item.component === selectedComponent)?.text || "Dashboard"}
-          </Typography>
-        </Toolbar>
-      </AppBar>
+            <XMarkIcon className="w-6 h-6" />
+          </button>
+        </div>
 
-      <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={handleDrawerToggle}
-          ModalProps={{
-            keepMounted: true,
-          }}
-          sx={{
-            display: { xs: "block", sm: "none" },
-            "& .MuiDrawer-paper": { boxSizing: "border-box", width: drawerWidth },
-          }}
-        >
-          {drawer}
-        </Drawer>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: "none", sm: "block" },
-            "& .MuiDrawer-paper": { boxSizing: "border-box", width: drawerWidth },
-          }}
-          open
-        >
-          {drawer}
-        </Drawer>
-      </Box>
+        <nav className="mt-8 px-4">
+          <ul className="space-y-2">
+            {menuItems.map((item) => {
+              const IconComponent = item.icon;
+              const isActive = selectedComponent === item.component;
 
-      <Box
-        component="main"
-        sx={{
-          flexGrow: 1,
-          p: 3,
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          mt: 8,
-        }}
-      >
-        <Container maxWidth="xl">{renderComponent()}</Container>
-      </Box>
-    </Box>
+              return (
+                <li key={item.text}>
+                  <button
+                    onClick={() => handleMenuClick(item.component)}
+                    className={`
+                      w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-200
+                      ${
+                        isActive
+                          ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-200"
+                          : "text-gray-700 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700"
+                      }
+                    `}
+                  >
+                    <IconComponent className="w-5 h-5 mr-3" />
+                    {item.text}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        {/* Theme Toggle */}
+        <div className="absolute bottom-6 left-4 right-4">
+          <Button
+            variant="ghost"
+            onClick={toggleTheme}
+            icon={isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+            className="w-full justify-start"
+          >
+            {isDark ? "Light Mode" : "Dark Mode"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Backdrop */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
+        {/* Header */}
+        <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div className="flex items-center justify-between h-16 px-6">
+            <div className="flex items-center">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden p-1 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 mr-4"
+              >
+                <Bars3Icon className="w-6 h-6" />
+              </button>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {currentPage?.text || "Dashboard"}
+              </h2>
+            </div>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <main className="flex-1 overflow-auto p-6">
+          <div className="w-full max-w-none">{renderComponent()}</div>
+        </main>
+      </div>
+    </div>
   );
 }
 
 // Dashboard Home Component
 function DashboardHome({ uploadedData }) {
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
-        Welcome to BulkPayout Dashboard
-      </Typography>
-      <Typography variant="body1" color="text.secondary" paragraph>
-        Manage your bulk payments efficiently with PayPal integration
-      </Typography>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome to BulkPayout Dashboard</h1>
+        <p className="mt-2 text-gray-600 dark:text-gray-400">
+          Manage your bulk payments efficiently with PayPal integration
+        </p>
+      </div>
 
-      <Grid container spacing={3} sx={{ mt: 2 }}>
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardHeader title="Total Payments" subheader="This month" avatar={<PaymentIcon color="primary" />} />
-            <CardContent>
-              <Typography variant="h4" color="primary">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <CreditCardIcon className="w-8 h-8 text-primary-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Payments</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
                 {uploadedData ? uploadedData.length : 0}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                payments ready to process
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">payments ready to process</p>
+            </div>
+          </div>
+        </Card>
 
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardHeader title="Total Amount" subheader="This month" avatar={<AccountIcon color="success" />} />
-            <CardContent>
-              <Typography variant="h4" color="success.main">
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <BanknotesIcon className="w-8 h-8 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Amount</p>
+              <p className="text-2xl font-bold text-green-600">
                 $
                 {uploadedData
                   ? uploadedData.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0).toFixed(2)
                   : "0.00"}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                total payout amount
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">total payout amount</p>
+            </div>
+          </div>
+        </Card>
 
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardHeader title="Status" subheader="Current" avatar={<DashboardIcon color="info" />} />
-            <CardContent>
-              <Typography variant="h4" color="info.main">
-                {uploadedData ? "Ready" : "No Data"}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <CheckCircleIcon className="w-8 h-8 text-blue-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</p>
+              <p className="text-2xl font-bold text-blue-600">{uploadedData ? "Ready" : "No Data"}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {uploadedData ? "Ready to process payments" : "Upload Excel file to start"}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+              </p>
+            </div>
+          </div>
+        </Card>
+      </div>
 
+      {/* Get Started Card */}
       {!uploadedData && (
-        <Paper sx={{ p: 3, mt: 3, textAlign: "center" }}>
-          <UploadIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
-          <Typography variant="h6" gutterBottom>
-            Get Started
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
+        <Card className="p-8 text-center">
+          <ArrowUpTrayIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Get Started</h3>
+          <p className="text-gray-600 dark:text-gray-400">
             Upload an Excel file with payment details to begin processing bulk payouts
-          </Typography>
-        </Paper>
+          </p>
+        </Card>
       )}
-    </Box>
+    </div>
   );
 }
 
@@ -256,7 +244,6 @@ function AccountInfo() {
     } catch (err) {
       console.error("Error fetching account balance:", err);
 
-      // Handle structured error responses from backend
       if (err.details) {
         setError(err);
       } else {
@@ -284,211 +271,162 @@ function AccountInfo() {
     }).format(parseFloat(amount || 0));
   };
 
-  const getBalanceIcon = (balanceType) => {
-    switch (balanceType) {
-      case "available":
-        return <AccountIcon sx={{ color: "success.main" }} />;
-      case "withheld":
-        return <AccountIcon sx={{ color: "warning.main" }} />;
-      case "total":
-      default:
-        return <AccountIcon sx={{ color: "primary.main" }} />;
-    }
-  };
-
   return (
-    <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Account Information
-        </Typography>
-        <IconButton onClick={fetchAccountBalance} disabled={loading} color="primary">
-          {loading ? <CircularProgress size={24} /> : <RefreshIcon />}
-        </IconButton>
-      </Box>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Account Information</h1>
+        <Button
+          onClick={fetchAccountBalance}
+          disabled={loading}
+          icon={loading ? <Spinner size="sm" /> : <ArrowPathIcon className="w-4 h-4" />}
+          variant="outline"
+        >
+          Refresh
+        </Button>
+      </div>
 
       {/* PayPal Integration Status */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <CheckCircleIcon sx={{ color: "success.main" }} />
-          PayPal Integration
-        </Typography>
-        <Typography variant="body1" paragraph>
+      <Card className="p-6">
+        <div className="flex items-center mb-4">
+          <CheckCircleIcon className="w-6 h-6 text-green-500 mr-2" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">PayPal Integration</h2>
+        </div>
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
           Your PayPal account is connected and ready for bulk payments.
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
+        </p>
+        <p className="text-sm text-gray-500 dark:text-gray-500">
           API Status:{" "}
           {accountData?.api_status === "connected_limited_permissions"
             ? "Connected (Limited Permissions)"
             : "Connected"}
-        </Typography>
+        </p>
         {accountData?.last_updated && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
             Last Updated: {new Date(accountData.last_updated).toLocaleString()}
-          </Typography>
+          </p>
         )}
-      </Paper>
+      </Card>
 
       {/* Account Balance Information */}
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Account Balance & Funds
-        </Typography>
+      <Card className="p-6">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Account Balance & Funds</h2>
 
-        {loading && (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress />
-          </Box>
-        )}
+        <LoadingOverlay isLoading={loading}>
+          {error && (
+            <ErrorDisplay
+              error={
+                typeof error === "string"
+                  ? {
+                      message: error,
+                      severity: "error",
+                      suggestion: "This might be due to PayPal API limitations or temporary connectivity issues.",
+                      action: "Retry balance check",
+                      retryable: true,
+                    }
+                  : error
+              }
+              onRetry={fetchAccountBalance}
+              onClose={() => setError(null)}
+              title="Account Balance Error"
+            />
+          )}
 
-        {error && (
-          <ErrorDisplay
-            error={
-              typeof error === "string"
-                ? {
-                    message: error,
-                    severity: "error",
-                    suggestion: "This might be due to PayPal API limitations or temporary connectivity issues.",
-                    action: "Retry balance check",
-                    retryable: true,
-                  }
-                : error
-            }
-            onRetry={fetchAccountBalance}
-            onClose={() => setError(null)}
-            title="Account Balance Error"
-          />
-        )}
+          {accountData && !loading && (
+            <div className="space-y-6">
+              {/* Permission Required Notice */}
+              {accountData.permission_required && (
+                <Alert variant="warning" title="Additional Permissions Required">
+                  <p className="mb-2">{accountData.message}</p>
+                  {accountData.help_text && <p className="text-sm">{accountData.help_text}</p>}
+                </Alert>
+              )}
 
-        {accountData && !loading && (
-          <Box>
-            {/* Permission Required Notice */}
-            {accountData.permission_required && (
-              <Alert severity="warning" sx={{ mb: 3 }}>
-                <Typography variant="body1" gutterBottom>
-                  <strong>Additional Permissions Required</strong>
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  {accountData.message}
-                </Typography>
-                {accountData.help_text && (
-                  <Typography variant="body2" color="text.secondary">
-                    {accountData.help_text}
-                  </Typography>
-                )}
-              </Alert>
-            )}
+              {/* Fallback Notice */}
+              {accountData.fallback && !accountData.permission_required && (
+                <Alert variant="info">{accountData.message}</Alert>
+              )}
 
-            {/* Fallback Notice */}
-            {accountData.fallback && !accountData.permission_required && (
-              <Alert severity="info" sx={{ mb: 3 }}>
-                {accountData.message}
-              </Alert>
-            )}
+              {accountData.balances && accountData.balances.length > 0 ? (
+                <div className="space-y-4">
+                  {accountData.balances.map((balance, index) => (
+                    <Card key={index} className="p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+                            {balance.currency} Account
+                          </h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {balance.primary ? "Primary Currency" : "Secondary Currency"}
+                          </p>
+                        </div>
+                        <BanknotesIcon className="w-8 h-8 text-primary-600" />
+                      </div>
 
-            {accountData.balances && accountData.balances.length > 0 ? (
-              <Grid container spacing={3}>
-                {accountData.balances.map((balance, index) => (
-                  <Grid item xs={12} key={index}>
-                    <Card variant="outlined">
-                      <CardHeader
-                        title={`${balance.currency} Account`}
-                        subheader={balance.primary ? "Primary Currency" : "Secondary Currency"}
-                        avatar={<AccountIcon color="primary" />}
-                      />
-                      <CardContent>
-                        <Grid container spacing={3}>
-                          {balance.total_balance && (
-                            <Grid item xs={12} md={4}>
-                              <Box sx={{ textAlign: "center" }}>
-                                <Typography variant="body2" color="text.secondary" gutterBottom>
-                                  Total Balance
-                                </Typography>
-                                <Typography variant="h5" color="primary">
-                                  {formatCurrency(balance.total_balance.value, balance.total_balance.currency_code)}
-                                </Typography>
-                              </Box>
-                            </Grid>
-                          )}
-                          {balance.available_balance && (
-                            <Grid item xs={12} md={4}>
-                              <Box sx={{ textAlign: "center" }}>
-                                <Typography variant="body2" color="text.secondary" gutterBottom>
-                                  Available Funds
-                                </Typography>
-                                <Typography variant="h5" color="success.main">
-                                  {formatCurrency(
-                                    balance.available_balance.value,
-                                    balance.available_balance.currency_code
-                                  )}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                  Ready for immediate use
-                                </Typography>
-                              </Box>
-                            </Grid>
-                          )}
-                          {balance.withheld_balance && (
-                            <Grid item xs={12} md={4}>
-                              <Box sx={{ textAlign: "center" }}>
-                                <Typography variant="body2" color="text.secondary" gutterBottom>
-                                  Withheld Funds
-                                </Typography>
-                                <Typography variant="h5" color="warning.main">
-                                  {formatCurrency(
-                                    balance.withheld_balance.value,
-                                    balance.withheld_balance.currency_code
-                                  )}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                  Temporarily held
-                                </Typography>
-                              </Box>
-                            </Grid>
-                          )}
-                        </Grid>
-                      </CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {balance.total_balance && (
+                          <div className="text-center">
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Total Balance</p>
+                            <p className="text-xl font-bold text-primary-600">
+                              {formatCurrency(balance.total_balance.value, balance.total_balance.currency_code)}
+                            </p>
+                          </div>
+                        )}
+                        {balance.available_balance && (
+                          <div className="text-center">
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Available Funds</p>
+                            <p className="text-xl font-bold text-green-600">
+                              {formatCurrency(balance.available_balance.value, balance.available_balance.currency_code)}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Ready for immediate use</p>
+                          </div>
+                        )}
+                        {balance.withheld_balance && (
+                          <div className="text-center">
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Withheld Funds</p>
+                            <p className="text-xl font-bold text-yellow-600">
+                              {formatCurrency(balance.withheld_balance.value, balance.withheld_balance.currency_code)}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Temporarily held</p>
+                          </div>
+                        )}
+                      </div>
                     </Card>
-                  </Grid>
-                ))}
-              </Grid>
-            ) : accountData.permission_required ? (
-              <Card variant="outlined" sx={{ textAlign: "center", py: 4 }}>
-                <CardContent>
-                  <AccountIcon sx={{ fontSize: 48, color: "warning.main", mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
+                  ))}
+                </div>
+              ) : accountData.permission_required ? (
+                <Card className="p-8 text-center">
+                  <BanknotesIcon className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
                     Balance Information Unavailable
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-2">
                     Balance information is not available due to PayPal API limitations or account type restrictions.
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-500">
                     Payout functionality remains fully operational.
-                  </Typography>
-                </CardContent>
-              </Card>
-            ) : (
-              <Alert severity="warning">
-                Balance information is currently unavailable. Please check your PayPal account permissions or try again
-                later.
-              </Alert>
-            )}
+                  </p>
+                </Card>
+              ) : (
+                <Alert variant="warning">
+                  Balance information is currently unavailable. Please check your PayPal account permissions or try
+                  again later.
+                </Alert>
+              )}
 
-            {/* Recent Activity */}
-            {accountData.recent_transactions && (
-              <Box sx={{ mt: 3 }}>
-                <Typography variant="h6" gutterBottom>
-                  Recent Activity
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Recent transaction data available - check PayPal dashboard for detailed history.
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        )}
-      </Paper>
-    </Box>
+              {/* Recent Activity */}
+              {accountData.recent_transactions && (
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Recent Activity</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Recent transaction data available - check PayPal dashboard for detailed history.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </LoadingOverlay>
+      </Card>
+    </div>
   );
 }
 

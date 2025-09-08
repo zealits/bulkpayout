@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { processPaymentBatch, getPaymentsByBatch } from "../services/paymentService";
+import ErrorDisplay from "./ErrorDisplay";
 import {
   Box,
   Typography,
@@ -46,6 +47,8 @@ function PaymentPreview({ data }) {
   const [processing, setProcessing] = useState(false);
   const [payments, setPayments] = useState([]);
   const [batchInfo, setBatchInfo] = useState(null);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
 
   // If data is from upload result, extract batch info
   useEffect(() => {
@@ -69,6 +72,12 @@ function PaymentPreview({ data }) {
       }
     } catch (error) {
       console.error("Error loading payments:", error);
+      setError({
+        ...error,
+        message: error.message || "Failed to load payment data",
+        suggestion: "Please try refreshing the page or contact support if the issue persists.",
+        action: "Refresh payment data",
+      });
     }
   };
 
@@ -123,11 +132,19 @@ function PaymentPreview({ data }) {
 
   const handleProcessPayments = async () => {
     if (!batchInfo) {
-      alert("No batch information available");
+      setError({
+        message: "No batch information available",
+        severity: "warning",
+        suggestion: "Please upload a payment file first.",
+        action: "Upload payment data",
+      });
       return;
     }
 
     setProcessing(true);
+    setError(null);
+    setSuccessMessage(null);
+
     try {
       const response = await processPaymentBatch(batchInfo.batchId, {
         email_subject: "You have a payout!",
@@ -136,12 +153,13 @@ function PaymentPreview({ data }) {
 
       if (response.success) {
         setProcessedPayments(response.data.paypalResponse?.items || []);
+        setSuccessMessage("Payments processed successfully! All recipients will receive their payments.");
         // Reload payments to get updated status
         await loadPayments(batchInfo.batchId);
       }
     } catch (error) {
       console.error("Payment processing error:", error);
-      alert("Error processing payments: " + error.message);
+      setError(error);
     } finally {
       setProcessing(false);
     }
@@ -217,6 +235,23 @@ function PaymentPreview({ data }) {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Error Display */}
+      {error && (
+        <ErrorDisplay
+          error={error}
+          onRetry={handleProcessPayments}
+          onClose={() => setError(null)}
+          title="Payment Processing Error"
+        />
+      )}
+
+      {/* Success Message */}
+      {successMessage && (
+        <Alert severity="success" onClose={() => setSuccessMessage(null)} sx={{ mb: 3 }}>
+          {successMessage}
+        </Alert>
+      )}
 
       {/* Action Buttons */}
       <Box sx={{ mb: 3, display: "flex", gap: 2 }}>

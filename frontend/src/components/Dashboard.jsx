@@ -35,6 +35,7 @@ import {
 import ExcelUpload from "./ExcelUpload";
 import PaymentPreview from "./PaymentPreview";
 import PaymentHistory from "./PaymentHistory";
+import ErrorDisplay from "./ErrorDisplay";
 
 const drawerWidth = 240;
 
@@ -253,8 +254,20 @@ function AccountInfo() {
       const response = await getAccountBalance();
       setAccountData(response.data);
     } catch (err) {
-      setError(err.message || "Failed to fetch account balance");
       console.error("Error fetching account balance:", err);
+
+      // Handle structured error responses from backend
+      if (err.details) {
+        setError(err);
+      } else {
+        setError({
+          message: err.message || "Failed to fetch account balance",
+          severity: "error",
+          suggestion: "This might be due to PayPal API limitations or temporary connectivity issues.",
+          action: "Retry balance check",
+          retryable: true,
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -329,12 +342,22 @@ function AccountInfo() {
         )}
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-            <Button size="small" onClick={fetchAccountBalance} sx={{ ml: 2 }}>
-              Retry
-            </Button>
-          </Alert>
+          <ErrorDisplay
+            error={
+              typeof error === "string"
+                ? {
+                    message: error,
+                    severity: "error",
+                    suggestion: "This might be due to PayPal API limitations or temporary connectivity issues.",
+                    action: "Retry balance check",
+                    retryable: true,
+                  }
+                : error
+            }
+            onRetry={fetchAccountBalance}
+            onClose={() => setError(null)}
+            title="Account Balance Error"
+          />
         )}
 
         {accountData && !loading && (

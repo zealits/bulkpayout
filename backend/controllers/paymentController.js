@@ -3,6 +3,7 @@ const Payment = require("../models/Payment");
 const PaymentBatch = require("../models/PaymentBatch");
 const paypalConfig = require("../config/paypal");
 const { successResponse, errorResponse, paginatedResponse } = require("../utils/responseHelper");
+const { formatPayPalErrorResponse, createUserFriendlyMessage } = require("../utils/paypalErrorMapper");
 
 // @desc    Get all payment batches
 // @route   GET /api/payments/batches
@@ -97,21 +98,32 @@ const processPaymentBatch = asyncHandler(async (req, res) => {
     if (!payoutResult.success) {
       console.error("PayPal payout failed:", payoutResult.error);
 
+      // Map PayPal error to user-friendly message
+      const errorInfo = formatPayPalErrorResponse(payoutResult.details || payoutResult.error);
+      const userFriendlyMessage = createUserFriendlyMessage(payoutResult.details || payoutResult.error);
+
       // Revert status changes
       batch.status = "failed";
-      batch.errorMessage = payoutResult.error;
+      batch.errorMessage = userFriendlyMessage;
       await batch.save();
 
       await Payment.updateMany(
         { batchId, status: "processing" },
         {
           status: "failed",
-          errorMessage: payoutResult.error,
+          errorMessage: userFriendlyMessage,
           completedAt: new Date(),
         }
       );
 
-      return errorResponse(res, "PayPal payout failed", 400, payoutResult.details);
+      return errorResponse(res, errorInfo.error, 400, {
+        message: errorInfo.message,
+        suggestion: errorInfo.suggestion,
+        action: errorInfo.action,
+        severity: errorInfo.severity,
+        retryable: errorInfo.retryable,
+        details: errorInfo.details,
+      });
     }
 
     // Validate PayPal response structure
@@ -219,9 +231,29 @@ const processPaymentBatch = asyncHandler(async (req, res) => {
       });
     }
 
+    // Check if this is a PayPal API error
+    let errorInfo;
+    if (error.response && error.response.data) {
+      // This is likely a PayPal API error
+      errorInfo = formatPayPalErrorResponse(error.response.data);
+    } else {
+      // This is a general error
+      errorInfo = {
+        error: "Processing Error",
+        message: "An unexpected error occurred while processing the payment batch.",
+        suggestion: "Please try again. If the issue persists, contact support for assistance.",
+        action: "Retry or contact support",
+        severity: "error",
+        retryable: true,
+        details: { originalError: error.message },
+      };
+    }
+
+    const userFriendlyMessage = errorInfo.message + " " + errorInfo.suggestion;
+
     // Revert status changes
     batch.status = "failed";
-    batch.errorMessage = error.message;
+    batch.errorMessage = userFriendlyMessage;
     await batch.save();
 
     console.log(`Reverting batch ${batchId} status to failed`);
@@ -230,17 +262,22 @@ const processPaymentBatch = asyncHandler(async (req, res) => {
       { batchId, status: "processing" },
       {
         status: "failed",
-        errorMessage: error.message,
+        errorMessage: userFriendlyMessage,
         completedAt: new Date(),
       }
     );
 
     console.log(`Updated all processing payments in batch ${batchId} to failed status`);
 
-    return errorResponse(res, "Error processing payment batch", 500, {
-      error: error.message,
+    return errorResponse(res, errorInfo.error, 500, {
+      message: errorInfo.message,
+      suggestion: errorInfo.suggestion,
+      action: errorInfo.action,
+      severity: errorInfo.severity,
+      retryable: errorInfo.retryable,
       batchId: batchId,
       timestamp: new Date().toISOString(),
+      details: errorInfo.details,
     });
   }
 });
@@ -363,7 +400,18 @@ const syncWithPayPal = asyncHandler(async (req, res) => {
 
     if (!batchResult.success) {
       console.error("Failed to sync with PayPal:", batchResult.error);
-      return errorResponse(res, "Failed to sync with PayPal", 400, batchResult.details);
+
+      // Map PayPal error to user-friendly message
+      const errorInfo = formatPayPalErrorResponse(batchResult.details || batchResult.error);
+
+      return errorResponse(res, errorInfo.error, 400, {
+        message: errorInfo.message,
+        suggestion: errorInfo.suggestion,
+        action: errorInfo.action,
+        severity: errorInfo.severity,
+        retryable: errorInfo.retryable,
+        details: errorInfo.details,
+      });
     }
 
     // Update batch status
@@ -452,9 +500,33 @@ const syncWithPayPal = asyncHandler(async (req, res) => {
   } catch (error) {
     console.error("Error syncing with PayPal:", error);
     console.error("Error stack:", error.stack);
-    return errorResponse(res, "Error syncing with PayPal", 500, {
-      error: error.message,
+
+    // Check if this is a PayPal API error
+    let errorInfo;
+    if (error.response && error.response.data) {
+      // This is likely a PayPal API error
+      errorInfo = formatPayPalErrorResponse(error.response.data);
+    } else {
+      // This is a general error
+      errorInfo = {
+        error: "Sync Error",
+        message: "An unexpected error occurred while syncing with PayPal.",
+        suggestion: "Please try again. If the issue persists, contact support for assistance.",
+        action: "Retry sync operation",
+        severity: "error",
+        retryable: true,
+        details: { originalError: error.message },
+      };
+    }
+
+    return errorResponse(res, errorInfo.error, 500, {
+      message: errorInfo.message,
+      suggestion: errorInfo.suggestion,
+      action: errorInfo.action,
+      severity: errorInfo.severity,
+      retryable: errorInfo.retryable,
       batchId: batchId,
+      details: errorInfo.details,
     });
   }
 });
@@ -473,7 +545,18 @@ const getAccountBalance = asyncHandler(async (req, res) => {
 
     if (!balanceResult.success) {
       console.error("Failed to get account balance:", balanceResult.error);
-      return errorResponse(res, "Failed to get account balance", 400, balanceResult.details);
+
+      // Map PayPal error to user-friendly message
+      const errorInfo = formatPayPalErrorResponse(balanceResult.details || balanceResult.error);
+
+      return errorResponse(res, errorInfo.error, 400, {
+        message: errorInfo.message,
+        suggestion: errorInfo.suggestion,
+        action: errorInfo.action,
+        severity: errorInfo.severity,
+        retryable: errorInfo.retryable,
+        details: errorInfo.details,
+      });
     }
 
     const responseData = {
@@ -487,7 +570,33 @@ const getAccountBalance = asyncHandler(async (req, res) => {
     return successResponse(res, responseData, "Account balance retrieved successfully");
   } catch (error) {
     console.error("Error in getAccountBalance controller:", error);
-    return errorResponse(res, "Failed to get account balance", 500, { error: error.message });
+
+    // Check if this is a PayPal API error
+    let errorInfo;
+    if (error.response && error.response.data) {
+      // This is likely a PayPal API error
+      errorInfo = formatPayPalErrorResponse(error.response.data);
+    } else {
+      // This is a general error
+      errorInfo = {
+        error: "Account Balance Error",
+        message: "An unexpected error occurred while retrieving account balance.",
+        suggestion: "Please try again. If the issue persists, contact support for assistance.",
+        action: "Retry balance check",
+        severity: "error",
+        retryable: true,
+        details: { originalError: error.message },
+      };
+    }
+
+    return errorResponse(res, errorInfo.error, 500, {
+      message: errorInfo.message,
+      suggestion: errorInfo.suggestion,
+      action: errorInfo.action,
+      severity: errorInfo.severity,
+      retryable: errorInfo.retryable,
+      details: errorInfo.details,
+    });
   }
 });
 

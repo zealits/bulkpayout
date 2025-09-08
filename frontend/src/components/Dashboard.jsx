@@ -231,8 +231,11 @@ function DashboardHome({ uploadedData }) {
 // Account Info Component
 function AccountInfo() {
   const [accountData, setAccountData] = React.useState(null);
+  const [giftogramData, setGiftogramData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [giftogramLoading, setGiftogramLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
+  const [giftogramError, setGiftogramError] = React.useState(null);
 
   const fetchAccountBalance = async () => {
     try {
@@ -260,9 +263,40 @@ function AccountInfo() {
     }
   };
 
+  const fetchGiftogramBalance = async () => {
+    try {
+      setGiftogramLoading(true);
+      setGiftogramError(null);
+      const { getGiftogramFunding } = await import("../services/giftogramService");
+      const response = await getGiftogramFunding();
+      setGiftogramData(response.data);
+    } catch (err) {
+      console.error("Error fetching Giftogram balance:", err);
+
+      if (err.details) {
+        setGiftogramError(err);
+      } else {
+        setGiftogramError({
+          message: err.message || "Failed to fetch Giftogram balance",
+          severity: "error",
+          suggestion: "This might be due to Giftogram API limitations or temporary connectivity issues.",
+          action: "Retry balance check",
+          retryable: true,
+        });
+      }
+    } finally {
+      setGiftogramLoading(false);
+    }
+  };
+
   React.useEffect(() => {
     fetchAccountBalance();
+    fetchGiftogramBalance();
   }, []);
+
+  const refreshAllBalances = async () => {
+    await Promise.all([fetchAccountBalance(), fetchGiftogramBalance()]);
+  };
 
   const formatCurrency = (amount, currency = "USD") => {
     return new Intl.NumberFormat("en-US", {
@@ -276,9 +310,9 @@ function AccountInfo() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Account Information</h1>
         <Button
-          onClick={fetchAccountBalance}
-          disabled={loading}
-          icon={loading ? <Spinner size="sm" /> : <ArrowPathIcon className="w-4 h-4" />}
+          onClick={refreshAllBalances}
+          disabled={loading || giftogramLoading}
+          icon={loading || giftogramLoading ? <Spinner size="sm" /> : <ArrowPathIcon className="w-4 h-4" />}
           variant="outline"
         >
           Refresh
@@ -304,6 +338,21 @@ function AccountInfo() {
           <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
             Last Updated: {new Date(accountData.last_updated).toLocaleString()}
           </p>
+        )}
+      </Card>
+
+      {/* Giftogram Integration Status */}
+      <Card className="p-6">
+        <div className="flex items-center mb-4">
+          <CheckCircleIcon className="w-6 h-6 text-green-500 mr-2" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Giftogram Integration</h2>
+        </div>
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
+          Your Giftogram account is connected and ready for gift card processing.
+        </p>
+        <p className="text-sm text-gray-500 dark:text-gray-500">API Status: Connected</p>
+        {giftogramData?.data && (
+          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">Last Updated: {new Date().toLocaleString()}</p>
         )}
       </Card>
 
@@ -422,6 +471,48 @@ function AccountInfo() {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Giftogram Balance Display */}
+          {giftogramError && (
+            <ErrorDisplay
+              error={
+                typeof giftogramError === "string"
+                  ? {
+                      message: giftogramError,
+                      severity: "error",
+                      suggestion: "This might be due to Giftogram API limitations or temporary connectivity issues.",
+                      action: "Retry balance check",
+                      retryable: true,
+                    }
+                  : giftogramError
+              }
+              onRetry={fetchGiftogramBalance}
+              onClose={() => setGiftogramError(null)}
+              title="Giftogram Balance Error"
+            />
+          )}
+
+          {giftogramData && !giftogramLoading && (
+            <div className="mt-6">
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Giftogram Account</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Gift Card Credits</p>
+                  </div>
+                  <BanknotesIcon className="w-8 h-8 text-primary-600" />
+                </div>
+
+                <div className="text-center">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Available Credits</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {formatCurrency(giftogramData.data?.credit_available || 0, "USD")}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Ready for gift card processing</p>
+                </div>
+              </Card>
             </div>
           )}
         </LoadingOverlay>

@@ -1,0 +1,99 @@
+name: Node.js CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Node.js environment
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20.x"
+
+      # Step 3: Install backend dependencies (root)
+    #   - name: Install backend dependencies
+    #     run: npm install --force
+    #     working-directory: .
+
+      # # Step 4: Install frontend dependencies
+      # - name: Install frontend dependencies
+      #   run: npm install --force
+      #   working-directory: ./frontend
+
+      # # Step 5: Build the frontend application
+      # - name: Build frontend application
+      #   run: npm run build
+      #   working-directory: ./frontend
+
+      # Step 6: Setup SSH for Deployment
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H dev.zealits.com >> ~/.ssh/known_hosts
+
+      # Step 7: Deploy to the server
+      - name: Deploy to server
+        if: github.ref == 'refs/heads/main'
+        run: |
+          ssh admin@dev.zealits.com << 'EOF'
+           echo "🔐 Starting deployment to remote server"
+
+           if [ -f ~/bulkpayout/backend/.env ]; then
+             echo "📁 Backing up existing .env file"
+             cp ~/bulkpayout/backend/.env ~/.env.bak
+           fi
+
+           if [ -d ~/bulkpayout ]; then
+             echo "📂 Pulling latest changes from Git"
+             cd ~/bulkpayout
+             git reset --hard
+             git pull origin main
+           else
+             echo "📂 Cloning repository"
+             git clone https://github.com/zealits/bulkpayout.git ~/bulkpayout 
+             cd ~/bulkpayout 
+           fi
+
+           if [ -f ~/.env.bak ]; then
+             echo "♻️ Restoring .env from backup"
+             mv ~/.env.bak ~/bulkpayout/backend/.env
+           fi
+
+           echo "📦 Installing backend dependencies"
+           cd ~/bulkpayout/backend
+           npm install
+
+           cd ../frontend
+           echo "📦 Installing frontend dependencies"
+           npm install --force
+           echo "🛠️ Building frontend"
+           npm run build
+
+           cd ../backend
+           echo "🚀 Starting or restarting PM2 process"
+           if pm2 list | grep -q "bulkpayout"; then
+             echo "🔁 Restarting bulkpayout"
+             pm2 restart bulkpayout
+           else
+             echo "▶️ Starting bulkpayout"
+             pm2 start npm --name "bulkpayout" -- run dev
+           fi
+
+           echo "📋 PM2 process list:"
+           pm2 list
+          EOF

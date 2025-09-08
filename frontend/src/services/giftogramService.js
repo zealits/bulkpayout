@@ -32,6 +32,16 @@ export const syncGiftogramBatch = async (batchId) => {
   }
 };
 
+// Get Giftogram account funding balance
+export const getGiftogramFunding = async () => {
+  try {
+    const response = await api.get("/giftogram/funding");
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Test Giftogram API connection
 export const testGiftogramConnection = async () => {
   try {
@@ -46,5 +56,6 @@ export default {
   getGiftogramCampaigns,
   processGiftogramBatch,
   syncGiftogramBatch,
+  getGiftogramFunding,
   testGiftogramConnection,
 };

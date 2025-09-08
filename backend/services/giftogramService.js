@@ -356,6 +356,38 @@ class GiftogramService {
   }
 
   /**
+   * Get Giftogram account funding balance
+   */
+  async getFunding() {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: "Giftogram API not configured",
+          data: null,
+        };
+      }
+
+      const response = await this.client.get("/api/v1/funding");
+
+      console.log("✅ Giftogram funding balance retrieved successfully");
+
+      return {
+        success: true,
+        data: response.data,
+        error: null,
+      };
+    } catch (error) {
+      console.error("Error fetching Giftogram funding:", error);
+      return {
+        success: false,
+        error: error.message,
+        details: error.response?.data,
+      };
+    }
+  }
+
+  /**
    * Test Giftogram API connection
    */
   async testConnection() {

@@ -386,6 +386,42 @@ const syncGiftogramBatch = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Get Giftogram account funding balance
+// @route   GET /api/giftogram/funding
+// @access  Public
+const getGiftogramFunding = asyncHandler(async (req, res) => {
+  console.log("💰 Fetching Giftogram funding balance");
+
+  try {
+    const result = await giftogramService.getFunding();
+
+    if (!result.success) {
+      return errorResponse(res, result.error, 400, {
+        message: "Failed to fetch Giftogram funding balance",
+        suggestion: "Please check your Giftogram API configuration and try again.",
+        action: "Check API configuration",
+        severity: "error",
+        retryable: true,
+        details: result.details,
+      });
+    }
+
+    const fundingData = result.data || {};
+
+    successResponse(res, fundingData, "Giftogram funding balance retrieved successfully");
+  } catch (error) {
+    console.error("Error in getGiftogramFunding:", error);
+    return errorResponse(res, "Failed to retrieve funding balance", 500, {
+      message: "An unexpected error occurred while fetching Giftogram funding balance.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
 // @desc    Test Giftogram API connection
 // @route   GET /api/giftogram/test
 // @access  Public
@@ -424,5 +460,6 @@ module.exports = {
   getGiftogramCampaigns,
   processGiftogramBatch,
   syncGiftogramBatch,
+  getGiftogramFunding,
   testGiftogramConnection,
 };

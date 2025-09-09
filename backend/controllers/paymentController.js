@@ -361,7 +361,7 @@ const updateBatchPaymentMethod = asyncHandler(async (req, res) => {
   const { paymentMethod, config } = req.body;
 
   // Validate payment method
-  const validMethods = ["paypal", "giftogram", "bank_transfer"];
+  const validMethods = ["paypal", "giftogram", "xe_bank_transfer"];
   if (!validMethods.includes(paymentMethod)) {
     return errorResponse(res, "Invalid payment method", 400, {
       message: `Payment method must be one of: ${validMethods.join(", ")}`,
@@ -398,6 +398,9 @@ const updateBatchPaymentMethod = asyncHandler(async (req, res) => {
       batch.giftogramCampaignId = config.campaignId;
       batch.giftogramMessage = config.message;
       batch.giftogramSubject = config.subject;
+    } else if (paymentMethod === "xe_bank_transfer") {
+      batch.xeAccountNumber = config.accountNumber;
+      batch.xeConfigData = config;
     }
   }
 

@@ -21,7 +21,7 @@ const paymentBatchSchema = new mongoose.Schema(
     paymentMethod: {
       type: String,
       required: true,
-      enum: ["paypal", "giftogram", "bank_transfer"],
+      enum: ["paypal", "giftogram", "xe_bank_transfer"],
       default: "paypal",
     },
 
@@ -65,6 +65,14 @@ const paymentBatchSchema = new mongoose.Schema(
     },
     giftogramSubject: {
       type: String,
+    },
+
+    // XE Bank Transfer batch details
+    xeAccountNumber: {
+      type: String,
+    },
+    xeConfigData: {
+      type: mongoose.Schema.Types.Mixed,
     },
 
     // File information

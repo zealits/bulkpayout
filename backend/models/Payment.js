@@ -32,7 +32,7 @@ const paymentSchema = new mongoose.Schema(
     paymentMethod: {
       type: String,
       required: true,
-      enum: ["paypal", "giftogram", "bank_transfer"],
+      enum: ["paypal", "giftogram", "xe_bank_transfer"],
       default: "paypal",
     },
 
@@ -71,6 +71,29 @@ const paymentSchema = new mongoose.Schema(
       type: String,
     },
     giftogramStatus: {
+      type: String,
+    },
+
+    // XE Bank Transfer details
+    xeRecipientId: {
+      type: String,
+    },
+    xePaymentId: {
+      type: String,
+    },
+    xeAccountNumber: {
+      type: String,
+    },
+    xeStatus: {
+      type: String,
+    },
+    xeBankDetails: {
+      type: mongoose.Schema.Types.Mixed,
+    },
+    xeCountryCode: {
+      type: String,
+    },
+    xeCurrencyCode: {
       type: String,
     },
 

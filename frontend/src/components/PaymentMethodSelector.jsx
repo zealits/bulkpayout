@@ -13,6 +13,7 @@ import Input from "./ui/Input";
 import Alert from "./ui/Alert";
 import Badge from "./ui/Badge";
 import { getGiftogramCampaigns, testGiftogramConnection } from "../services/giftogramService";
+import { testXeConnection, getXeAccounts } from "../services/xeService";
 import { updateBatchPaymentMethod } from "../services/paymentService";
 
 function PaymentMethodSelector({ batch, onMethodChange, onError }) {
@@ -26,6 +27,11 @@ function PaymentMethodSelector({ batch, onMethodChange, onError }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [giftogramStatus, setGiftogramStatus] = useState(null);
+  const [xeConfig, setXeConfig] = useState({
+    accountNumber: batch?.xeAccountNumber || "",
+  });
+  const [xeAccounts, setXeAccounts] = useState([]);
+  const [xeStatus, setXeStatus] = useState(null);
 
   // Payment method configurations
   const paymentMethods = [
@@ -48,13 +54,13 @@ function PaymentMethodSelector({ batch, onMethodChange, onError }) {
       features: ["Various retailers", "Customizable messages", "Easy redemption"],
     },
     {
-      id: "bank_transfer",
-      name: "Bank Transfer",
-      description: "Direct bank transfers (Coming Soon)",
+      id: "xe_bank_transfer",
+      name: "XE Bank Transfer",
+      description: "International bank transfers via XE",
       icon: BanknotesIcon,
       color: "green",
-      available: false,
-      features: ["Direct to bank", "Lower fees", "Secure transfers"],
+      available: true,
+      features: ["Global coverage", "Competitive rates", "Secure transfers"],
     },
   ];
 
@@ -62,6 +68,13 @@ function PaymentMethodSelector({ batch, onMethodChange, onError }) {
   useEffect(() => {
     if (selectedMethod === "giftogram") {
       loadGiftogramData();
+    }
+  }, [selectedMethod]);
+
+  // Load XE accounts when XE is selected
+  useEffect(() => {
+    if (selectedMethod === "xe_bank_transfer") {
+      loadXeData();
     }
   }, [selectedMethod]);
 
@@ -112,6 +125,53 @@ function PaymentMethodSelector({ batch, onMethodChange, onError }) {
     }
   };
 
+  const loadXeData = async () => {
+    setLoading(true);
+    try {
+      // Test connection first
+      const connectionTest = await testXeConnection();
+      if (connectionTest.success) {
+        setXeStatus("connected");
+
+        // Load accounts
+        const accountsResponse = await getXeAccounts();
+        if (accountsResponse.success) {
+          setXeAccounts(accountsResponse.data || []);
+          // Set default account if none selected
+          if (!xeConfig.accountNumber && accountsResponse.data?.length > 0) {
+            setXeConfig((prev) => ({
+              ...prev,
+              accountNumber: accountsResponse.data[0].accountNumber,
+            }));
+          }
+        }
+      } else {
+        setXeStatus("error");
+        if (onError) {
+          onError({
+            message: "XE API connection failed",
+            suggestion: "Please check your XE configuration in the environment settings.",
+            action: "Check configuration",
+            severity: "warning",
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error loading XE data:", error);
+      setXeStatus("error");
+      if (onError) {
+        onError({
+          message: "Failed to load XE configuration",
+          suggestion: "Please check your internet connection and try again.",
+          action: "Retry",
+          severity: "error",
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleMethodSelect = (methodId) => {
     if (!paymentMethods.find((m) => m.id === methodId)?.available) return;
     setSelectedMethod(methodId);
@@ -132,7 +192,12 @@ function PaymentMethodSelector({ batch, onMethodChange, onError }) {
 
     setSaving(true);
     try {
-      const config = selectedMethod === "giftogram" ? giftogramConfig : {};
+      let config = {};
+      if (selectedMethod === "giftogram") {
+        config = giftogramConfig;
+      } else if (selectedMethod === "xe_bank_transfer") {
+        config = xeConfig;
+      }
 
       const response = await updateBatchPaymentMethod(batch.batchId, selectedMethod, config);
 
@@ -349,20 +414,76 @@ function PaymentMethodSelector({ batch, onMethodChange, onError }) {
         </Card>
       )}
 
-      {/* Bank Transfer Information */}
-      {selectedMethod === "bank_transfer" && (
+      {/* XE Bank Transfer Configuration */}
+      {selectedMethod === "xe_bank_transfer" && (
         <Card className="p-6">
           <div className="flex items-center mb-4">
             <BanknotesIcon className="w-5 h-5 text-green-600 mr-2" />
-            <h4 className="font-semibold text-gray-900 dark:text-white">Bank Transfer Configuration</h4>
-            <Badge variant="warning" size="sm" className="ml-2">
-              Coming Soon
-            </Badge>
+            <h4 className="font-semibold text-gray-900 dark:text-white">XE Bank Transfer Configuration</h4>
+            {xeStatus === "connected" && (
+              <Badge variant="success" size="sm" className="ml-2">
+                Connected
+              </Badge>
+            )}
+            {xeStatus === "error" && (
+              <Badge variant="danger" size="sm" className="ml-2">
+                Connection Error
+              </Badge>
+            )}
           </div>
-          <Alert variant="info">
-            <InformationCircleIcon className="w-5 h-5" />
-            Bank transfer functionality is coming soon. Recipients will receive emails to provide their banking details.
-          </Alert>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+              <span className="ml-2 text-gray-600 dark:text-gray-400">Loading XE accounts...</span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Account Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">XE Account</label>
+                <select
+                  value={xeConfig.accountNumber}
+                  onChange={(e) => setXeConfig((prev) => ({ ...prev, accountNumber: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                >
+                  <option value="">Select an account...</option>
+                  {xeAccounts.map((account) => (
+                    <option key={account.accountNumber} value={account.accountNumber}>
+                      {account.accountName} ({account.accountNumber})
+                    </option>
+                  ))}
+                </select>
+                {xeAccounts.length === 0 && xeStatus === "connected" && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    No accounts available. Please check your XE account.
+                  </p>
+                )}
+              </div>
+
+              {xeStatus === "connected" && (
+                <Alert variant="info">
+                  <InformationCircleIcon className="w-5 h-5" />
+                  <div>
+                    <p className="font-medium">XE Bank Transfer Process:</p>
+                    <ul className="mt-1 text-sm space-y-1">
+                      <li>• Recipients will receive emails to provide their bank details</li>
+                      <li>• Bank details will be collected based on their country and currency</li>
+                      <li>• Payments will be processed once all details are collected</li>
+                      <li>• International transfers with competitive exchange rates</li>
+                    </ul>
+                  </div>
+                </Alert>
+              )}
+
+              {xeStatus === "error" && (
+                <Alert variant="warning">
+                  <InformationCircleIcon className="w-5 h-5" />
+                  XE configuration issues detected. Please check your API settings.
+                </Alert>
+              )}
+            </div>
+          )}
         </Card>
       )}
 
@@ -375,7 +496,8 @@ function PaymentMethodSelector({ batch, onMethodChange, onError }) {
           disabled={
             saving ||
             !selectedMethod ||
-            (selectedMethod === "giftogram" && (!giftogramConfig.campaignId || giftogramStatus === "error"))
+            (selectedMethod === "giftogram" && (!giftogramConfig.campaignId || giftogramStatus === "error")) ||
+            (selectedMethod === "xe_bank_transfer" && (!xeConfig.accountNumber || xeStatus === "error"))
           }
         >
           {saving ? "Saving Configuration..." : "Save Payment Method"}

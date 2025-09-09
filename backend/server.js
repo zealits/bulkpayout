@@ -8,6 +8,7 @@ const path = require("path");
 const paymentRoutes = require("./routes/paymentRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const giftogramRoutes = require("./routes/giftogramRoutes");
+const xeRoutes = require("./routes/xeRoutes");
 
 // Import middleware
 const errorHandler = require("./middleware/errorHandler");
@@ -42,6 +43,7 @@ mongoose
 app.use("/api/payments", paymentRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/giftogram", giftogramRoutes);
+app.use("/api/xe", xeRoutes);
 
 // Health check route
 app.get("/api/health", (req, res) => {

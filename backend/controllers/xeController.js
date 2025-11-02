@@ -1,7 +1,12 @@
 const asyncHandler = require("../middleware/asyncHandler");
 const Payment = require("../models/Payment");
 const PaymentBatch = require("../models/PaymentBatch");
+const PaymentField = require("../models/PaymentField");
+const XeContract = require("../models/XeContract");
+const XeRecipient = require("../models/XeRecipient");
 const xeService = require("../services/xeService");
+const { generateXeTemplate, generateXeWorkbookForSelections } = require("../utils/xeExcelGenerator");
+const { parseXeWorkbook } = require("../utils/xeWorkbookParser");
 const { successResponse, errorResponse } = require("../utils/responseHelper");
 
 // @desc    Test XE API connection
@@ -129,6 +134,11 @@ const createXeRecipient = asyncHandler(async (req, res) => {
   console.log("👤 Creating XE recipient:", recipientData.email);
 
   try {
+    // Ensure client reference is system-generated and XE-compliant
+    if (!recipientData.clientReference || typeof recipientData.clientReference !== "string") {
+      recipientData.clientReference = require("../models/XeRecipient").generateClientReference();
+    }
+
     const result = await xeService.createRecipient(recipientData);
 
     if (!result.success) {
@@ -472,6 +482,83 @@ const getSupportedCountriesAndCurrencies = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Generate XE Excel template
+// @route   POST /api/xe/generate-template
+// @access  Public
+const generateXeExcelTemplate = asyncHandler(async (req, res) => {
+  const { countryCode, currencyCode, numberOfRecipients } = req.body;
+
+  console.log(`📊 Generating XE template for ${countryCode}/${currencyCode} with ${numberOfRecipients} recipients`);
+
+  // Validate input
+  if (!countryCode || !currencyCode) {
+    return errorResponse(res, "Country code and currency code are required", 400);
+  }
+
+  if (typeof numberOfRecipients !== "number" || numberOfRecipients < 1 || numberOfRecipients > 10000) {
+    return errorResponse(res, "Number of recipients must be between 1 and 10,000", 400);
+  }
+
+  try {
+    // Try to get payment fields from database first
+    let paymentFields = [];
+    let paymentFieldDoc = await PaymentField.findOne({ countryCode, currencyCode });
+
+    // If not in database or expired, fetch from API
+    if (!paymentFieldDoc || paymentFieldDoc.isExpired()) {
+      console.log(`Fetching payment fields from XE API for ${countryCode}/${currencyCode}`);
+      const fieldsResult = await xeService.getPaymentFields(countryCode, currencyCode);
+
+      if (fieldsResult.success && fieldsResult.data) {
+        paymentFields = fieldsResult.data;
+
+        // Store in database
+        await PaymentField.findOrCreate(countryCode, currencyCode, paymentFields);
+        console.log(`Payment fields stored in database for ${countryCode}/${currencyCode}`);
+      } else {
+        console.warn(`Could not fetch payment fields from API, using empty array`);
+        // Continue without payment fields - template will still work with base fields
+      }
+    } else {
+      paymentFields = paymentFieldDoc.fields;
+      console.log(`Using cached payment fields from database for ${countryCode}/${currencyCode}`);
+    }
+
+    // Generate Excel template
+    const excelBuffer = generateXeTemplate({
+      countryCode,
+      currencyCode,
+      numberOfRecipients,
+      paymentFields,
+    });
+
+    // Set headers for file download
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="XE_Template_${countryCode}_${currencyCode}_${Date.now()}.xlsx"`
+    );
+
+    // Send the Excel file
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error("Error generating XE template:", error);
+    // If headers were already set, we need to remove them and send JSON instead
+    if (res.headersSent) {
+      console.error("Headers already sent, cannot send error response");
+      return;
+    }
+    return errorResponse(res, "Failed to generate template", 500, {
+      message: "An unexpected error occurred while generating the Excel template.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
 module.exports = {
   testXeConnection,
   getXeAccounts,
@@ -481,4 +568,546 @@ module.exports = {
   getXePaymentStatus,
   processXeBatch,
   getSupportedCountriesAndCurrencies,
+  generateXeExcelTemplate,
 };
+
+// @desc    Generate XE Excel templates for multiple selections (multi-sheet workbook)
+// @route   POST /api/xe/generate-template-bulk
+// @access  Public
+const generateXeExcelTemplatesBulk = asyncHandler(async (req, res) => {
+  const { selections } = req.body || {};
+
+  if (!Array.isArray(selections) || selections.length === 0) {
+    return errorResponse(res, "Selections array is required", 400);
+  }
+
+  try {
+    const resolvedSelections = [];
+    for (const sel of selections) {
+      const { countryCode, currencyCode, numberOfRecipients } = sel || {};
+      if (!countryCode || !currencyCode) continue;
+
+      let paymentFields = [];
+      let paymentFieldDoc = await PaymentField.findOne({ countryCode, currencyCode });
+      if (!paymentFieldDoc || paymentFieldDoc.isExpired()) {
+        const fieldsResult = await xeService.getPaymentFields(countryCode, currencyCode);
+        if (fieldsResult.success && fieldsResult.data) {
+          paymentFields = fieldsResult.data;
+          await PaymentField.findOrCreate(countryCode, currencyCode, paymentFields);
+        }
+      } else {
+        paymentFields = paymentFieldDoc.fields;
+      }
+
+      resolvedSelections.push({
+        countryCode,
+        currencyCode,
+        numberOfRecipients: Number(numberOfRecipients) || 1,
+        paymentFields,
+      });
+    }
+
+    const excelBuffer = generateXeWorkbookForSelections(resolvedSelections);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="XE_Templates_${Date.now()}.xlsx"`);
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error("Error generating bulk XE templates:", error);
+    return errorResponse(res, "Failed to generate templates", 500, {
+      message: "An unexpected error occurred while generating the Excel templates.",
+      severity: "error",
+      details: { originalError: error.message },
+    });
+  }
+});
+
+module.exports.generateXeExcelTemplatesBulk = generateXeExcelTemplatesBulk;
+
+// @desc    Parse uploaded XE template workbook and extract rows per sheet
+// @route   POST /api/xe/parse-template
+// @access  Public
+const parseXeTemplate = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return errorResponse(res, "No file uploaded", 400);
+  }
+
+  try {
+    const { buffer, originalname } = req.file;
+    const parsed = parseXeWorkbook(buffer);
+    return successResponse(res, { filename: originalname, sheets: parsed.sheets }, "Workbook parsed successfully");
+  } catch (error) {
+    console.error("Error parsing XE workbook:", error);
+    return errorResponse(res, "Failed to parse workbook", 400, { message: error.message });
+  }
+});
+
+module.exports.parseXeTemplate = parseXeTemplate;
+
+// @desc    Create XE contract for a recipient
+// @route   POST /api/xe/contracts
+// @access  Public
+const createXeContract = asyncHandler(async (req, res) => {
+  const { xeRecipientId, amount, buyCurrency } = req.body;
+
+  console.log("📝 Creating XE contract:", {
+    xeRecipientId,
+    amount,
+    buyCurrency,
+  });
+
+  // Validate required fields
+  if (!xeRecipientId || !amount || !buyCurrency) {
+    return errorResponse(res, "xeRecipientId, amount, and buyCurrency are required", 400);
+  }
+
+  if (amount <= 0) {
+    return errorResponse(res, "Amount must be greater than 0", 400);
+  }
+
+  try {
+    // Find recipient to get client reference
+    const recipient = await XeRecipient.findOne({ "recipientId.xeRecipientId": xeRecipientId });
+    if (!recipient) {
+      return errorResponse(res, "Recipient not found", 404);
+    }
+
+    // Generate unique client reference for the contract payment
+    const clientReference = XeRecipient.generateClientReference("PAY");
+
+    // Determine purpose of payment code
+    const purposeOfPaymentCode = buyCurrency === "INR" ? "CORP_INR_UTILTY" : "CORP_INVOICE";
+
+    // Get bank account ID from environment
+    const bankAccountId = process.env.XE_BANK_ACCOUNT_ID;
+    if (!bankAccountId) {
+      return errorResponse(res, "XE_BANK_ACCOUNT_ID is not configured", 500);
+    }
+
+    // Build contract request payload
+    const contractData = {
+      payments: [
+        {
+          clientReference: clientReference,
+          sellAmount: {
+            currency: "USD",
+            amount: parseFloat(amount),
+          },
+          buyAmount: {
+            currency: buyCurrency,
+          },
+          purposeOfPaymentCode: purposeOfPaymentCode,
+          recipient: {
+            recipientId: {
+              xeRecipientId: xeRecipientId,
+              clientReference: recipient.recipientId.clientReference,
+            },
+            type: "Registered",
+          },
+        },
+      ],
+      autoApprove: false,
+      settlementDetails: {
+        settlementMethod: "DirectDebit",
+        bankAccountId: parseInt(bankAccountId, 10),
+      },
+    };
+
+    // Create contract via XE API
+    const result = await xeService.createContract(contractData);
+
+    if (!result.success) {
+      return errorResponse(res, result.error, 400, {
+        message: "Failed to create XE contract",
+        suggestion: "Please check the contract data and try again.",
+        action: "Verify contract data",
+        severity: "error",
+        retryable: true,
+        details: result.details,
+      });
+    }
+
+    // Process quote data to ensure dates are properly parsed
+    let processedQuote = result.data.quote;
+    if (processedQuote) {
+      processedQuote = { ...processedQuote };
+      if (processedQuote.quoteTime) {
+        processedQuote.quoteTime = new Date(processedQuote.quoteTime);
+      }
+      if (processedQuote.expires) {
+        processedQuote.expires = new Date(processedQuote.expires);
+      }
+      if (processedQuote.fxDetails && Array.isArray(processedQuote.fxDetails)) {
+        processedQuote.fxDetails = processedQuote.fxDetails.map((fx) => {
+          const processed = { ...fx };
+          if (processed.valueDate) {
+            processed.valueDate = new Date(processed.valueDate);
+          }
+          return processed;
+        });
+      }
+    }
+
+    // Process summary data to ensure dates are properly parsed
+    let processedSummary = result.data.summary;
+    if (processedSummary && Array.isArray(processedSummary)) {
+      processedSummary = processedSummary.map((s) => {
+        const processed = { ...s };
+        if (processed.settlementDate) {
+          processed.settlementDate = new Date(processed.settlementDate);
+        }
+        if (processed.remainingSettlement?.valueDate) {
+          processed.remainingSettlement = {
+            ...processed.remainingSettlement,
+            valueDate: new Date(processed.remainingSettlement.valueDate),
+          };
+        }
+        return processed;
+      });
+    }
+
+    // Store contract in database
+    const contract = new XeContract({
+      identifier: result.data.identifier,
+      recipientId: {
+        xeRecipientId: xeRecipientId,
+        clientReference: recipient.recipientId.clientReference,
+      },
+      createdDate: result.data.createdDate ? new Date(result.data.createdDate) : new Date(),
+      status: result.data.status,
+      quote: processedQuote,
+      settlementOptions: result.data.settlementOptions,
+      deliveryMethod: result.data.deliveryMethod,
+      summary: processedSummary,
+      settlementStatus: result.data.settlementStatus,
+      quoteStatus: result.data.quoteStatus,
+      contractType: result.data.contractType,
+      paymentRequest: {
+        clientReference: clientReference,
+        sellAmount: {
+          currency: "USD",
+          amount: parseFloat(amount),
+        },
+        buyAmount: {
+          currency: buyCurrency,
+        },
+        purposeOfPaymentCode: purposeOfPaymentCode,
+      },
+    });
+
+    await contract.save();
+
+    successResponse(res, contract.toObject(), "XE contract created successfully");
+  } catch (error) {
+    console.error("Error in createXeContract:", error);
+    return errorResponse(res, "Failed to create contract", 500, {
+      message: "An unexpected error occurred while creating the contract.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
+// @desc    Cancel/Delete XE contract
+// @route   DELETE /api/xe/contracts/:contractNumber
+// @access  Public
+const cancelXeContract = asyncHandler(async (req, res) => {
+  const { contractNumber } = req.params;
+
+  console.log(`🗑️ Cancelling XE contract: ${contractNumber}`);
+
+  if (!contractNumber) {
+    return errorResponse(res, "Contract number is required", 400);
+  }
+
+  try {
+    // Find contract in database
+    const contract = await XeContract.findOne({ "identifier.contractNumber": contractNumber });
+    if (!contract) {
+      return errorResponse(res, "Contract not found", 404);
+    }
+
+    // Cancel contract via XE API
+    const result = await xeService.cancelContract(contractNumber);
+
+    if (!result.success) {
+      return errorResponse(res, result.error, 400, {
+        message: "Failed to cancel XE contract",
+        suggestion: "Please check the contract status and try again.",
+        action: "Verify contract status",
+        severity: "error",
+        retryable: true,
+        details: result.details,
+      });
+    }
+
+    // Update contract status in database
+    contract.status = "Cancelled";
+    await contract.save();
+
+    successResponse(res, contract.toObject(), "XE contract cancelled successfully");
+  } catch (error) {
+    console.error("Error in cancelXeContract:", error);
+    return errorResponse(res, "Failed to cancel contract", 500, {
+      message: "An unexpected error occurred while cancelling the contract.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
+// @desc    Approve XE contract
+// @route   POST /api/xe/contracts/:contractNumber/approve
+// @access  Public
+const approveXeContract = asyncHandler(async (req, res) => {
+  const { contractNumber } = req.params;
+
+  console.log(`✅ Approving XE contract: ${contractNumber}`);
+
+  if (!contractNumber) {
+    return errorResponse(res, "Contract number is required", 400);
+  }
+
+  try {
+    // Find contract in database
+    const contract = await XeContract.findOne({ "identifier.contractNumber": contractNumber });
+    if (!contract) {
+      return errorResponse(res, "Contract not found", 404);
+    }
+
+    // Check if contract is already approved
+    if (contract.status === "Approved") {
+      return errorResponse(res, "Contract is already approved", 400);
+    }
+
+    // Approve contract via XE API
+    const result = await xeService.approveContract(contractNumber);
+
+    if (!result.success) {
+      return errorResponse(res, result.error, 400, {
+        message: "Failed to approve XE contract",
+        suggestion: "Please check the contract status and try again.",
+        action: "Verify contract status",
+        severity: "error",
+        retryable: true,
+        details: result.details,
+      });
+    }
+
+    // Update contract in database
+    contract.status = "Approved";
+    contract.approvedAt = new Date();
+    contract.approvedBy = "system"; // You can add user tracking here
+
+    // Update with latest data from XE if provided
+    if (result.data) {
+      if (result.data.status) contract.status = result.data.status;
+      if (result.data.quote) contract.quote = result.data.quote;
+      if (result.data.settlementStatus) contract.settlementStatus = result.data.settlementStatus;
+      if (result.data.quoteStatus) contract.quoteStatus = result.data.quoteStatus;
+    }
+
+    await contract.save();
+
+    successResponse(res, contract.toObject(), "XE contract approved successfully");
+  } catch (error) {
+    console.error("Error in approveXeContract:", error);
+    return errorResponse(res, "Failed to approve contract", 500, {
+      message: "An unexpected error occurred while approving the contract.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
+// @desc    Get XE contract by contract number
+// @route   GET /api/xe/contracts/:contractNumber
+// @access  Public
+const getXeContract = asyncHandler(async (req, res) => {
+  const { contractNumber } = req.params;
+
+  console.log(`📄 Getting XE contract: ${contractNumber}`);
+
+  if (!contractNumber) {
+    return errorResponse(res, "Contract number is required", 400);
+  }
+
+  try {
+    const contract = await XeContract.findOne({ "identifier.contractNumber": contractNumber });
+
+    if (!contract) {
+      return errorResponse(res, "Contract not found", 404);
+    }
+
+    successResponse(res, contract.toObject(), "XE contract retrieved successfully");
+  } catch (error) {
+    console.error("Error in getXeContract:", error);
+    return errorResponse(res, "Failed to retrieve contract", 500, {
+      message: "An unexpected error occurred while retrieving the contract.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
+// @desc    Get XE contract details from XE API
+// @route   GET /api/xe/contracts/:contractNumber/details
+// @access  Public
+const getXeContractDetails = asyncHandler(async (req, res) => {
+  const { contractNumber } = req.params;
+
+  console.log(`📄 Getting XE contract details from API: ${contractNumber}`);
+
+  if (!contractNumber) {
+    return errorResponse(res, "Contract number is required", 400);
+  }
+
+  try {
+    const result = await xeService.getContractDetails(contractNumber);
+
+    if (!result.success) {
+      return errorResponse(res, result.error || "Failed to fetch contract details", result.statusCode || 500, {
+        message: result.error || "An unexpected error occurred while fetching contract details.",
+        suggestion: "Please verify the contract number and try again.",
+        action: "Retry operation",
+        severity: "error",
+        retryable: true,
+        details: result.details || {},
+      });
+    }
+
+    successResponse(res, result.data, "XE contract details retrieved successfully");
+  } catch (error) {
+    console.error("Error in getXeContractDetails:", error);
+    return errorResponse(res, "Failed to retrieve contract details", 500, {
+      message: "An unexpected error occurred while retrieving the contract details.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
+// @desc    Get XE contracts for a recipient
+// @route   GET /api/xe/recipients/:xeRecipientId/contracts
+// @access  Public
+const getXeContractsByRecipient = asyncHandler(async (req, res) => {
+  const { xeRecipientId } = req.params;
+  const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
+  const skip = (page - 1) * limit;
+
+  console.log(`📄 Getting XE contracts for recipient: ${xeRecipientId}`);
+
+  if (!xeRecipientId) {
+    return errorResponse(res, "xeRecipientId is required", 400);
+  }
+
+  try {
+    const query = { "recipientId.xeRecipientId": xeRecipientId };
+
+    const [contracts, total] = await Promise.all([
+      XeContract.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      XeContract.countDocuments(query),
+    ]);
+
+    successResponse(
+      res,
+      {
+        items: contracts,
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+      "XE contracts retrieved successfully"
+    );
+  } catch (error) {
+    console.error("Error in getXeContractsByRecipient:", error);
+    return errorResponse(res, "Failed to retrieve contracts", 500, {
+      message: "An unexpected error occurred while retrieving the contracts.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
+// @desc    Get all XE contracts
+// @route   GET /api/xe/contracts
+// @access  Public
+const getAllXeContracts = asyncHandler(async (req, res) => {
+  const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
+  const skip = (page - 1) * limit;
+  const search = req.query.search?.trim();
+
+  console.log(`📄 Getting all XE contracts - page: ${page}, limit: ${limit}`);
+
+  try {
+    const query = {};
+
+    // Add search functionality
+    if (search) {
+      query.$or = [
+        { "identifier.contractNumber": { $regex: search, $options: "i" } },
+        { "identifier.clientTransferNumber": { $regex: search, $options: "i" } },
+        { "recipientId.xeRecipientId": { $regex: search, $options: "i" } },
+        { "recipientId.clientReference": { $regex: search, $options: "i" } },
+        { status: { $regex: search, $options: "i" } },
+        { quoteStatus: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const [contracts, total] = await Promise.all([
+      XeContract.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      XeContract.countDocuments(query),
+    ]);
+
+    successResponse(
+      res,
+      {
+        items: contracts,
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+      "XE contracts retrieved successfully"
+    );
+  } catch (error) {
+    console.error("Error in getAllXeContracts:", error);
+    return errorResponse(res, "Failed to retrieve contracts", 500, {
+      message: "An unexpected error occurred while retrieving the contracts.",
+      suggestion: "Please try again. If the issue persists, contact support.",
+      action: "Retry operation",
+      severity: "error",
+      retryable: true,
+      details: { originalError: error.message },
+    });
+  }
+});
+
+module.exports.createXeContract = createXeContract;
+module.exports.approveXeContract = approveXeContract;
+module.exports.cancelXeContract = cancelXeContract;
+module.exports.getXeContract = getXeContract;
+module.exports.getXeContractDetails = getXeContractDetails;
+module.exports.getXeContractsByRecipient = getXeContractsByRecipient;
+module.exports.getAllXeContracts = getAllXeContracts;

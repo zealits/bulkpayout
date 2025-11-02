@@ -22,6 +22,10 @@ GIFTOGRAM_ENVIRONMENT=sandbox
 XE_ACCESS_KEY=your_xe_access_key_here
 XE_ACCESS_SECRET=your_xe_access_secret_here
 XE_ENVIRONMENT=sandbox
+# Optional but recommended: default client account number for XE requests
+XE_ACCOUNT_NUMBER=your_xe_account_number_here
+# Bank account ID for contract settlement
+XE_BANK_ACCOUNT_ID=your_xe_bank_account_id_here
 # Change to 'production' for live environment
 
 # JWT Configuration

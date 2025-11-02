@@ -8,24 +8,19 @@ class XeService {
       process.env.XE_ENVIRONMENT === "production" ? "https://pay-api.xe.com" : "https://pay-api-sandbox.xe.com";
     this.accessKey = process.env.XE_ACCESS_KEY;
     this.accessSecret = process.env.XE_ACCESS_SECRET;
+    this.accountNumber = process.env.XE_ACCOUNT_NUMBER;
 
     console.log("🔄 XE API configuration:", {
       environment: process.env.XE_ENVIRONMENT || "sandbox",
       apiUrl: this.apiUrl,
       hasAccessKey: process.env.XE_ACCESS_KEY,
       hasAccessSecret: process.env.XE_ACCESS_SECRET,
+      hasAccountNumber: process.env.XE_ACCOUNT_NUMBER,
     });
 
     // Token management
     this.accessToken = null;
     this.tokenExpiresAt = null;
-
-    console.log("🔄 XE API configuration:", {
-      environment: process.env.XE_ENVIRONMENT || "sandbox",
-      apiUrl: this.apiUrl,
-      hasAccessKey: !!this.accessKey,
-      hasAccessSecret: !!this.accessSecret,
-    });
 
     if (!this.accessKey || !this.accessSecret) {
       console.warn("⚠️ XE API credentials not configured. XE functionality will be disabled.");
@@ -43,7 +38,7 @@ class XeService {
     // Add request interceptor for logging and token management
     this.client.interceptors.request.use(
       async (config) => {
-        console.log(`🔄 XE API Request: ${config.method?.toUpperCase()} ${config.url}`);
+        // console.log(`🔄 XE API Request: ${config.method?.toUpperCase()} ${config.url}`);
 
         // Add authorization header if we have a valid token (except for auth endpoint)
         if (!config.url.includes("/auth/token")) {
@@ -58,7 +53,7 @@ class XeService {
         return config;
       },
       (error) => {
-        console.error("❌ XE API Request Error:", error);
+        // console.error("❌ XE API Request Error:", error);
         return Promise.reject(error);
       }
     );
@@ -255,8 +250,10 @@ class XeService {
 
   /**
    * Create a recipient
+   * @param {Object} recipientData - Recipient data following XE API format
+   * @param {string} accountNumber - Account number for query parameter
    */
-  async createRecipient(recipientData) {
+  async createRecipient(recipientData, accountNumber = null) {
     try {
       if (!this.isConfigured()) {
         return {
@@ -268,34 +265,73 @@ class XeService {
 
       await this.ensureAuthenticated();
 
-      // Validate required fields
-      if (!recipientData.email || !recipientData.name) {
-        return {
-          success: false,
-          error: "Email and name are required for recipient creation",
-          data: null,
-        };
+      // Default to env account number if not provided
+      if (!accountNumber && this.accountNumber) {
+        accountNumber = this.accountNumber;
       }
 
-      const response = await this.client.post("/v2/recipients", recipientData);
+      // Build URL with accountNumber query param if provided
+      let url = "/v2/recipients";
+      if (accountNumber) {
+        url += `?accountNumber=${encodeURIComponent(accountNumber)}`;
+      }
+
+      const response = await this.client.post(url, recipientData);
 
       console.log("✅ XE recipient created successfully:", {
-        recipientId: response.data?.id,
-        email: recipientData.email,
+        recipientId: response.data?.recipientId?.xeRecipientId,
+        clientReference: recipientData.clientReference,
       });
 
       return {
         success: true,
         data: response.data,
         error: null,
+        statusCode: response.status,
       };
     } catch (error) {
-      console.error("Error creating XE recipient:", error);
+      // console.error("Error creating XE recipient:", error);
+
+      const statusCode = error.response?.status || 500;
+      const errorData = error.response?.data || {};
+
       return {
         success: false,
-        error: error.response?.data?.message || error.message,
+        error: errorData.shortErrorMsg || errorData.longErrorMsg || error.message,
         data: null,
-        details: error.response?.data,
+        details: errorData,
+        statusCode: statusCode,
+      };
+    }
+  }
+
+  /**
+   * Delete a recipient in XE by xeRecipientId
+   */
+  async deleteRecipient(xeRecipientId) {
+    try {
+      if (!this.isConfigured()) {
+        return { success: false, error: "XE API not configured", data: null };
+      }
+
+      if (!xeRecipientId) {
+        return { success: false, error: "xeRecipientId is required", data: null };
+      }
+
+      await this.ensureAuthenticated();
+
+      const response = await this.client.delete(`/v2/recipients/${encodeURIComponent(xeRecipientId)}`);
+
+      return { success: true, data: response.data || null, error: null, statusCode: response.status };
+    } catch (error) {
+      const statusCode = error.response?.status || 500;
+      const errorData = error.response?.data || {};
+      return {
+        success: false,
+        error: errorData.shortErrorMsg || errorData.longErrorMsg || error.message,
+        data: null,
+        details: errorData,
+        statusCode,
       };
     }
   }
@@ -314,6 +350,11 @@ class XeService {
       }
 
       await this.ensureAuthenticated();
+
+      // Default to env account number if not provided on payload
+      if (!paymentData.accountNumber && this.accountNumber) {
+        paymentData.accountNumber = this.accountNumber;
+      }
 
       // Validate required fields
       if (!paymentData.recipientId || !paymentData.amount || !paymentData.accountNumber) {
@@ -464,6 +505,292 @@ class XeService {
         error: error.response?.data?.message || error.message,
         data: null,
         details: error.response?.data,
+      };
+    }
+  }
+
+  /**
+   * Create a contract for payment
+   * @param {Object} contractData - Contract data with payments array
+   * @param {string} accountNumber - Account number for query parameter
+   */
+  async createContract(contractData, accountNumber = null) {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: "XE API not configured",
+          data: null,
+        };
+      }
+
+      await this.ensureAuthenticated();
+
+      // Default to env account number if not provided
+      if (!accountNumber && this.accountNumber) {
+        accountNumber = this.accountNumber;
+      }
+
+      if (!accountNumber) {
+        return {
+          success: false,
+          error: "Account number is required",
+          data: null,
+        };
+      }
+
+      // Build URL with accountNumber query param
+      const url = `/v2/payments?accountNumber=${encodeURIComponent(accountNumber)}`;
+
+      const response = await this.client.post(url, contractData);
+
+      console.log("✅ XE contract created successfully:", {
+        response: response.data,
+        //   contractNumber: response.data?.identifier?.contractNumber,
+        //   clientTransferNumber: response.data?.identifier?.clientTransferNumber,
+      });
+
+      return {
+        success: true,
+        data: response.data,
+        error: null,
+        statusCode: response.status,
+      };
+    } catch (error) {
+      console.error("Error creating XE contract:", error);
+
+      const statusCode = error.response?.status || 500;
+      const errorData = error.response?.data || {};
+
+      return {
+        success: false,
+        error: errorData.shortErrorMsg || errorData.longErrorMsg || error.message,
+        data: null,
+        details: errorData,
+        statusCode: statusCode,
+      };
+    }
+  }
+
+  /**
+   * Approve a contract
+   * @param {string} contractNumber - Contract number to approve
+   */
+  async approveContract(contractNumber) {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: "XE API not configured",
+          data: null,
+        };
+      }
+
+      await this.ensureAuthenticated();
+
+      if (!contractNumber) {
+        return {
+          success: false,
+          error: "Contract number is required",
+          data: null,
+        };
+      }
+
+      // Build URL - approve endpoint uses /v2/contracts/ not /v2/payments/
+      const url = `/v2/contracts/${encodeURIComponent(contractNumber)}/approve`;
+
+      const response = await this.client.post(url);
+
+      console.log("✅ XE contract approved successfully:", {
+        contractNumber: contractNumber,
+      });
+
+      return {
+        success: true,
+        data: response.data,
+        error: null,
+        statusCode: response.status,
+      };
+    } catch (error) {
+      console.error("Error approving XE contract:", error);
+
+      const statusCode = error.response?.status || 500;
+      const errorData = error.response?.data || {};
+
+      return {
+        success: false,
+        error: errorData.shortErrorMsg || errorData.longErrorMsg || error.message,
+        data: null,
+        details: errorData,
+        statusCode: statusCode,
+      };
+    }
+  }
+
+  /**
+   * Cancel/Delete a contract
+   * @param {string} contractNumber - Contract number to cancel
+   */
+  async cancelContract(contractNumber) {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: "XE API not configured",
+          data: null,
+        };
+      }
+
+      await this.ensureAuthenticated();
+
+      if (!contractNumber) {
+        return {
+          success: false,
+          error: "Contract number is required",
+          data: null,
+        };
+      }
+
+      // Build URL for contract cancellation
+      const url = `/v2/contracts/${encodeURIComponent(contractNumber)}`;
+
+      const response = await this.client.delete(url);
+
+      console.log("✅ XE contract cancelled successfully:", {
+        contractNumber: contractNumber,
+      });
+
+      return {
+        success: true,
+        data: response.data,
+        error: null,
+        statusCode: response.status,
+      };
+    } catch (error) {
+      console.error("Error cancelling XE contract:", error);
+
+      const statusCode = error.response?.status || 500;
+      const errorData = error.response?.data || {};
+
+      return {
+        success: false,
+        error: errorData.shortErrorMsg || errorData.longErrorMsg || error.message,
+        data: null,
+        details: errorData,
+        statusCode: statusCode,
+      };
+    }
+  }
+
+  /**
+   * Get contract status
+   * @param {string} contractNumber - Contract number
+   * @param {string} accountNumber - Account number for query parameter
+   */
+  async getContractStatus(contractNumber, accountNumber = null) {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: "XE API not configured",
+          data: null,
+        };
+      }
+
+      await this.ensureAuthenticated();
+
+      // Default to env account number if not provided
+      if (!accountNumber && this.accountNumber) {
+        accountNumber = this.accountNumber;
+      }
+
+      if (!accountNumber || !contractNumber) {
+        return {
+          success: false,
+          error: "Account number and contract number are required",
+          data: null,
+        };
+      }
+
+      // Build URL with accountNumber query param
+      const url = `/v2/payments/${encodeURIComponent(contractNumber)}?accountNumber=${encodeURIComponent(
+        accountNumber
+      )}`;
+
+      const response = await this.client.get(url);
+
+      return {
+        success: true,
+        data: response.data,
+        error: null,
+        statusCode: response.status,
+      };
+    } catch (error) {
+      console.error(`Error fetching contract status for ${contractNumber}:`, error);
+
+      const statusCode = error.response?.status || 500;
+      const errorData = error.response?.data || {};
+
+      return {
+        success: false,
+        error: errorData.shortErrorMsg || errorData.longErrorMsg || error.message,
+        data: null,
+        details: errorData,
+        statusCode: statusCode,
+      };
+    }
+  }
+
+  /**
+   * Get contract details from XE API
+   * @param {string} contractNumber - Contract number
+   */
+  async getContractDetails(contractNumber) {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: "XE API not configured",
+          data: null,
+        };
+      }
+
+      await this.ensureAuthenticated();
+
+      if (!contractNumber) {
+        return {
+          success: false,
+          error: "Contract number is required",
+          data: null,
+        };
+      }
+
+      const url = `/v2/contracts/${encodeURIComponent(contractNumber)}`;
+
+      const response = await this.client.get(url);
+
+      console.log("✅ XE contract details fetched successfully:", {
+        contractNumber: contractNumber,
+      });
+
+      return {
+        success: true,
+        data: response.data,
+        error: null,
+        statusCode: response.status,
+      };
+    } catch (error) {
+      console.error(`Error fetching contract details for ${contractNumber}:`, error);
+
+      const statusCode = error.response?.status || 500;
+      const errorData = error.response?.data || {};
+
+      return {
+        success: false,
+        error: errorData.shortErrorMsg || errorData.longErrorMsg || error.message,
+        data: null,
+        details: errorData,
+        statusCode: statusCode,
       };
     }
   }

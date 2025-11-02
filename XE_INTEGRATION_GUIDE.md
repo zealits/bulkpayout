@@ -89,6 +89,8 @@ Add the following environment variables to your `.env` file:
 XE_ACCESS_KEY=your_xe_access_key_here
 XE_ACCESS_SECRET=your_xe_access_secret_here
 XE_ENVIRONMENT=sandbox
+# Optional but recommended: default client account number used on XE requests
+XE_ACCOUNT_NUMBER=your_xe_account_number_here
 # Change to 'production' for live environment
 ```
 

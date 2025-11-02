@@ -11,6 +11,9 @@ import {
   MoonIcon,
   CheckCircleIcon,
   ArrowPathIcon,
+  DocumentArrowDownIcon,
+  UserGroupIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/outline";
 import { useTheme } from "../contexts/ThemeContext";
 import Button from "./ui/Button";
@@ -21,12 +24,20 @@ import ExcelUpload from "./ExcelUpload";
 import PaymentPreview from "./PaymentPreview";
 import PaymentHistory from "./PaymentHistory";
 import ErrorDisplay from "./ErrorDisplay";
+import XeTemplateDownload from "./XeTemplateDownload";
+import XeExcelExtractor from "./XeExcelExtractor";
+import XeRecipients from "./XeRecipients";
+import XeContracts from "./XeContracts";
 
 const menuItems = [
   { text: "Dashboard", icon: HomeIcon, component: "dashboard" },
   { text: "Upload Excel", icon: ArrowUpTrayIcon, component: "upload" },
   { text: "Payment Preview", icon: CreditCardIcon, component: "preview" },
   { text: "Payment History", icon: ClockIcon, component: "history" },
+  { text: "XE Template Download", icon: DocumentArrowDownIcon, component: "xe-template" },
+  { text: "Upload XE Excel", icon: ArrowUpTrayIcon, component: "xe-upload" },
+  { text: "XE Recipients", icon: UserGroupIcon, component: "xe-recipients" },
+  { text: "XE Contracts", icon: DocumentTextIcon, component: "xe-contracts" },
   { text: "Account", icon: BanknotesIcon, component: "account" },
 ];
 
@@ -49,6 +60,14 @@ function Dashboard() {
         return <PaymentPreview data={uploadedData} />;
       case "history":
         return <PaymentHistory />;
+      case "xe-template":
+        return <XeTemplateDownload />;
+      case "xe-upload":
+        return <XeExcelExtractor />;
+      case "xe-recipients":
+        return <XeRecipients />;
+      case "xe-contracts":
+        return <XeContracts />;
       case "account":
         return <AccountInfo />;
       default:

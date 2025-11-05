@@ -145,6 +145,15 @@ const xeContractSchema = new mongoose.Schema(
     // Approval information
     approvedAt: { type: Date },
     approvedBy: { type: String },
+
+    // Environment tracking
+    environment: {
+      type: String,
+      enum: ["production", "sandbox"],
+      default: "sandbox",
+      required: true,
+      index: true,
+    },
   },
   {
     timestamps: true,

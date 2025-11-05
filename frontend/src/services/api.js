@@ -2,8 +2,8 @@ import axios from "axios";
 
 // Create axios instance with base configuration
 const api = axios.create({
-  // baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
-  baseURL: import.meta.env.VITE_API_URL || "https://bulkpayout.aiiventure.com/api",
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
+  // baseURL: import.meta.env.VITE_API_URL || "https://bulkpayout.aiiventure.com/api",
   timeout: 30000, // 30 seconds timeout for file uploads
   headers: {
     "Content-Type": "application/json",
@@ -18,6 +18,29 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Add environment parameter from localStorage (set by EnvironmentContext)
+    let environment = localStorage.getItem("bulkpayout_environment") || "sandbox";
+    
+    // Normalize environment (ensure it's valid)
+    environment = String(environment).trim().toLowerCase();
+    if (!["production", "sandbox"].includes(environment)) {
+      environment = "sandbox"; // Default to sandbox if invalid
+    }
+    
+    // Add environment to query params for GET requests
+    if (config.method === "get" || config.method === "GET") {
+      config.params = config.params || {};
+      config.params.environment = environment;
+    }
+    // Add environment to body for POST/PUT/DELETE requests
+    else if (config.data) {
+      // If data is FormData, we can't modify it easily, so we'll handle it in the service
+      if (!(config.data instanceof FormData)) {
+        config.data.environment = environment;
+      }
+    }
+    
     return config;
   },
   (error) => {

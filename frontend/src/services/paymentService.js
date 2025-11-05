@@ -69,6 +69,7 @@ export const getPaymentStats = async (batchId = null, period = null) => {
 // Get dashboard statistics
 export const getDashboardStats = async () => {
   try {
+    // Environment will be automatically added by the API interceptor
     const response = await api.get("/payments/dashboard-stats");
     return response;
   } catch (error) {

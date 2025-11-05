@@ -14,9 +14,17 @@ const getPaymentBatches = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const batches = await PaymentBatch.find().sort({ createdAt: -1 }).skip(skip).limit(limit);
+  // Get environment from query, default to sandbox
+  let environment = req.query.environment || "sandbox";
+  environment = String(environment).trim().toLowerCase();
+  if (!["production", "sandbox"].includes(environment)) {
+    environment = "sandbox";
+  }
 
-  const totalCount = await PaymentBatch.countDocuments();
+  // Filter batches by environment
+  const query = { environment };
+  const batches = await PaymentBatch.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
+  const totalCount = await PaymentBatch.countDocuments(query);
 
   paginatedResponse(res, batches, totalCount, page, limit, "Payment batches retrieved successfully");
 });
@@ -25,13 +33,26 @@ const getPaymentBatches = asyncHandler(async (req, res) => {
 // @route   GET /api/payments/batches/:batchId
 // @access  Public
 const getPaymentBatch = asyncHandler(async (req, res) => {
-  const batch = await PaymentBatch.findOne({ batchId: req.params.batchId });
+  // Get environment from query, default to sandbox
+  let environment = req.query.environment || "sandbox";
+  environment = String(environment).trim().toLowerCase();
+  if (!["production", "sandbox"].includes(environment)) {
+    environment = "sandbox";
+  }
+
+  const batch = await PaymentBatch.findOne({ 
+    batchId: req.params.batchId,
+    environment: environment,
+  });
 
   if (!batch) {
     return errorResponse(res, "Payment batch not found", 404);
   }
 
-  const payments = await Payment.findByBatch(req.params.batchId);
+  const payments = await Payment.find({ 
+    batchId: req.params.batchId,
+    environment: environment,
+  }).sort({ createdAt: -1 });
 
   successResponse(res, { batch, payments }, "Payment batch retrieved successfully");
 });
@@ -45,13 +66,22 @@ const getPaymentsByBatch = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
   const status = req.query.status;
 
-  let query = { batchId: req.params.batchId };
+  // Get environment from query, default to sandbox
+  let environment = req.query.environment || "sandbox";
+  environment = String(environment).trim().toLowerCase();
+  if (!["production", "sandbox"].includes(environment)) {
+    environment = "sandbox";
+  }
+
+  let query = { 
+    batchId: req.params.batchId,
+    environment: environment,
+  };
   if (status) {
     query.status = status;
   }
 
   const payments = await Payment.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
-
   const totalCount = await Payment.countDocuments(query);
 
   paginatedResponse(res, payments, totalCount, page, limit, "Payments retrieved successfully");
@@ -89,10 +119,13 @@ const processPaymentBatch = asyncHandler(async (req, res) => {
   await Payment.updateMany({ batchId, status: "pending" }, { status: "processing", processedAt: new Date() });
 
   try {
-    console.log(`Starting PayPal payout for batch ${batchId} with ${payments.length} payments`);
+    // Get environment from batch (default to sandbox for backward compatibility)
+    const environment = batch.environment || "sandbox";
+    
+    console.log(`Starting PayPal payout for batch ${batchId} with ${payments.length} payments (environment: ${environment})`);
 
-    // Create PayPal payout
-    const payoutResult = await paypalConfig.createPayout(batchId, payments, senderBatchHeader);
+    // Create PayPal payout with environment
+    const payoutResult = await paypalConfig.createPayout(batchId, payments, senderBatchHeader, environment);
 
     console.log("PayPal payout result:", JSON.stringify(payoutResult, null, 2));
 
@@ -358,11 +391,24 @@ const getPaymentStats = asyncHandler(async (req, res) => {
 // @route   GET /api/payments/dashboard-stats
 // @access  Public
 const getDashboardStats = asyncHandler(async (req, res) => {
-  // Get completed payments grouped by payment method
+  // Get environment from query parameter, default to sandbox
+  let environment = req.query.environment || req.body.environment || "sandbox";
+  
+  // Normalize environment (trim whitespace, lowercase)
+  environment = String(environment).trim().toLowerCase();
+  
+  // Validate environment - default to sandbox if invalid
+  if (!["production", "sandbox"].includes(environment)) {
+    console.warn(`Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`);
+    environment = "sandbox";
+  }
+
+  // Get completed payments grouped by payment method, filtered by environment
   const paymentStats = await Payment.aggregate([
     {
       $match: {
         status: "completed",
+        environment: environment,
       },
     },
     {
@@ -405,11 +451,12 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     }
   });
 
-  // Get XE contracts statistics (settled contracts)
+  // Get XE contracts statistics (settled contracts), filtered by environment
   const xeContracts = await XeContract.aggregate([
     {
       $match: {
         settlementStatus: { $in: ["Settled", "PartiallySettled"] },
+        environment: environment,
       },
     },
     {
@@ -706,11 +753,22 @@ const syncWithPayPal = asyncHandler(async (req, res) => {
 // @route   GET /api/payments/account/balance
 // @access  Public
 const getAccountBalance = asyncHandler(async (req, res) => {
-  console.log("Getting PayPal account balance");
+  let environment = req.query.environment || req.body.environment || "sandbox";
+  
+  // Normalize environment (trim whitespace, lowercase)
+  environment = String(environment).trim().toLowerCase();
+  
+  // Validate environment - default to sandbox if invalid
+  if (!["production", "sandbox"].includes(environment)) {
+    console.warn(`Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`);
+    environment = "sandbox";
+  }
+
+  console.log(`Getting PayPal account balance (environment: ${environment})`);
 
   try {
     // Get account balance from PayPal
-    const balanceResult = await paypalConfig.getAccountBalance();
+    const balanceResult = await paypalConfig.getAccountBalance(environment);
 
     console.log("PayPal balance result:", JSON.stringify(balanceResult, null, 2));
 

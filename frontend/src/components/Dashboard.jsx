@@ -17,9 +17,12 @@ import {
   ArrowRightOnRectangleIcon,
   BuildingLibraryIcon,
   GiftIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
+import { useEnvironment } from "../contexts/EnvironmentContext";
 import { useNavigate } from "react-router-dom";
 import Button from "./ui/Button";
 import Card from "./ui/Card";
@@ -40,10 +43,16 @@ const menuItems = [
   { text: "Upload Excel", icon: ArrowUpTrayIcon, component: "upload" },
   { text: "Payment Preview", icon: CreditCardIcon, component: "preview" },
   { text: "Payment History", icon: ClockIcon, component: "history" },
-  { text: "XE Template Download", icon: DocumentArrowDownIcon, component: "xe-template" },
-  { text: "Upload XE Excel", icon: ArrowUpTrayIcon, component: "xe-upload" },
-  { text: "XE Recipients", icon: UserGroupIcon, component: "xe-recipients" },
-  { text: "XE Contracts", icon: DocumentTextIcon, component: "xe-contracts" },
+  {
+    text: "XE Payment",
+    icon: BuildingLibraryIcon,
+    children: [
+      { text: "XE Template Download", icon: DocumentArrowDownIcon, component: "xe-template" },
+      { text: "Upload XE Excel", icon: ArrowUpTrayIcon, component: "xe-upload" },
+      { text: "XE Recipients", icon: UserGroupIcon, component: "xe-recipients" },
+      { text: "XE Contracts", icon: DocumentTextIcon, component: "xe-contracts" },
+    ],
+  },
   { text: "Account", icon: BanknotesIcon, component: "account" },
 ];
 
@@ -51,8 +60,10 @@ function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState("dashboard");
   const [uploadedData, setUploadedData] = useState(null);
+  const [expandedMenus, setExpandedMenus] = useState({ "XE Payment": true });
   const { isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const { environment, toggleEnvironment, isProduction, isSandbox } = useEnvironment();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -63,6 +74,13 @@ function Dashboard() {
   const handleMenuClick = (component) => {
     setSelectedComponent(component);
     setSidebarOpen(false);
+  };
+
+  const toggleMenuExpand = (menuText) => {
+    setExpandedMenus((prev) => ({
+      ...prev,
+      [menuText]: !prev[menuText],
+    }));
   };
 
   const renderComponent = () => {
@@ -88,7 +106,20 @@ function Dashboard() {
     }
   };
 
-  const currentPage = menuItems.find((item) => item.component === selectedComponent);
+  const findCurrentPage = () => {
+    for (const item of menuItems) {
+      if (item.component === selectedComponent) {
+        return item;
+      }
+      if (item.children) {
+        const child = item.children.find((child) => child.component === selectedComponent);
+        if (child) return child;
+      }
+    }
+    return null;
+  };
+
+  const currentPage = findCurrentPage();
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -101,12 +132,11 @@ function Dashboard() {
       `}
       >
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 dark:border-gray-700">
-          
           <img
-              src="https://res.cloudinary.com/dzmn9lnk5/image/upload/v1762091880/agile/logos/studieshqwithagilelabs_dt6jbb_c_crop_w_2000_h_700_zfnepb.png"
-              alt="StudiesHQ Logo"
-              className="h-15"
-            />
+            src="https://res.cloudinary.com/dzmn9lnk5/image/upload/v1762091880/agile/logos/studieshqwithagilelabs_dt6jbb_c_crop_w_2000_h_700_zfnepb.png"
+            alt="StudiesHQ Logo"
+            className="h-15"
+          />
           <button
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-1 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -119,24 +149,81 @@ function Dashboard() {
           <ul className="space-y-2">
             {menuItems.map((item) => {
               const IconComponent = item.icon;
-              const isActive = selectedComponent === item.component;
+              const hasChildren = item.children && item.children.length > 0;
+              const isExpanded = expandedMenus[item.text] || false;
+              const isActive = hasChildren
+                ? item.children.some((child) => child.component === selectedComponent)
+                : selectedComponent === item.component;
 
               return (
                 <li key={item.text}>
-                  <button
-                    onClick={() => handleMenuClick(item.component)}
-                    className={`
-                      w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-200
-                      ${
-                        isActive
-                          ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-200"
-                          : "text-gray-700 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700"
-                      }
-                    `}
-                  >
-                    <IconComponent className="w-5 h-5 mr-3" />
-                    {item.text}
-                  </button>
+                  {hasChildren ? (
+                    <>
+                      <button
+                        onClick={() => toggleMenuExpand(item.text)}
+                        className={`
+                          w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-200
+                          ${
+                            isActive
+                              ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-200"
+                              : "text-gray-700 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700"
+                          }
+                        `}
+                      >
+                        <div className="flex items-center">
+                          <IconComponent className="w-5 h-5 mr-3" />
+                          {item.text}
+                        </div>
+                        {isExpanded ? (
+                          <ChevronDownIcon className="w-4 h-4" />
+                        ) : (
+                          <ChevronRightIcon className="w-4 h-4" />
+                        )}
+                      </button>
+                      {isExpanded && (
+                        <ul className="ml-6 mt-1 space-y-1">
+                          {item.children.map((child) => {
+                            const ChildIconComponent = child.icon;
+                            const isChildActive = selectedComponent === child.component;
+
+                            return (
+                              <li key={child.text}>
+                                <button
+                                  onClick={() => handleMenuClick(child.component)}
+                                  className={`
+                                    w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors duration-200
+                                    ${
+                                      isChildActive
+                                        ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-200"
+                                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700"
+                                    }
+                                  `}
+                                >
+                                  <ChildIconComponent className="w-4 h-4 mr-3" />
+                                  {child.text}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => handleMenuClick(item.component)}
+                      className={`
+                        w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-200
+                        ${
+                          isActive
+                            ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-200"
+                            : "text-gray-700 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700"
+                        }
+                      `}
+                    >
+                      <IconComponent className="w-5 h-5 mr-3" />
+                      {item.text}
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -178,6 +265,27 @@ function Dashboard() {
               </h2>
             </div>
             <div className="flex items-center gap-4">
+              {/* Environment Toggle */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {isSandbox ? "Sandbox" : "Production"}
+                </span>
+                <button
+                  onClick={toggleEnvironment}
+                  className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+                    isProduction ? "bg-green-600" : "bg-gray-300"
+                  }`}
+                  role="switch"
+                  aria-checked={isProduction}
+                  aria-label="Toggle environment"
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isProduction ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
               <span className="text-sm text-gray-600 dark:text-gray-400 hidden sm:block">
                 {user?.name || user?.email}
               </span>
@@ -204,6 +312,7 @@ function Dashboard() {
 
 // Dashboard Home Component
 function DashboardHome({ uploadedData }) {
+  const { environment } = useEnvironment();
   const [dashboardStats, setDashboardStats] = useState({
     xe: { contracts: 0, payments: 0, totalAmount: 0 },
     paypal: { payments: 0, totalAmount: 0 },
@@ -217,6 +326,7 @@ function DashboardHome({ uploadedData }) {
       try {
         setLoading(true);
         setError(null);
+        // Environment is automatically added by API interceptor
         const response = await getDashboardStats();
         if (response.data) {
           setDashboardStats(response.data);
@@ -230,7 +340,7 @@ function DashboardHome({ uploadedData }) {
     };
 
     fetchDashboardStats();
-  }, []);
+  }, [environment]);
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat("en-US", {
@@ -303,9 +413,7 @@ function DashboardHome({ uploadedData }) {
             </div>
             <div className="ml-4 flex-1">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">PayPal Payments</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {dashboardStats.paypal.payments}
-              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{dashboardStats.paypal.payments}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">completed payments</p>
               <p className="text-sm font-semibold text-green-600 mt-1">
                 {formatCurrency(dashboardStats.paypal.totalAmount)}
@@ -322,9 +430,7 @@ function DashboardHome({ uploadedData }) {
             </div>
             <div className="ml-4 flex-1">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Gift Cards Sent</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {dashboardStats.giftogram.giftCards}
-              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{dashboardStats.giftogram.giftCards}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">gift cards delivered</p>
               <p className="text-sm font-semibold text-purple-600 mt-1">
                 {formatCurrency(dashboardStats.giftogram.totalAmount)}
@@ -339,9 +445,7 @@ function DashboardHome({ uploadedData }) {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Total Summary</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Combined statistics across all payment methods
-            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Combined statistics across all payment methods</p>
           </div>
           <div className="text-right">
             <p className="text-sm text-gray-500 dark:text-gray-400">Total Payments</p>
@@ -354,9 +458,7 @@ function DashboardHome({ uploadedData }) {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total Amount</p>
             <p className="text-2xl font-bold text-green-600">
               {formatCurrency(
-                dashboardStats.xe.totalAmount +
-                  dashboardStats.paypal.totalAmount +
-                  dashboardStats.giftogram.totalAmount
+                dashboardStats.xe.totalAmount + dashboardStats.paypal.totalAmount + dashboardStats.giftogram.totalAmount
               )}
             </p>
           </div>
@@ -442,10 +544,12 @@ function AccountInfo() {
     }
   };
 
+  const { environment } = useEnvironment();
+
   React.useEffect(() => {
     fetchAccountBalance();
     fetchGiftogramBalance();
-  }, []);
+  }, [environment]);
 
   const refreshAllBalances = async () => {
     await Promise.all([fetchAccountBalance(), fetchGiftogramBalance()]);

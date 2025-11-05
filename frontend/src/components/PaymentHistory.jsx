@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { getPaymentBatches, getPaymentStats, syncWithPayPal, getPaymentBatch } from "../services/paymentService";
+import { useEnvironment } from "../contexts/EnvironmentContext";
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -23,6 +24,7 @@ import Modal from "./ui/Modal";
 import { LoadingOverlay, Spinner } from "./ui/Loading";
 
 function PaymentHistory() {
+  const { environment } = useEnvironment();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
@@ -40,7 +42,7 @@ function PaymentHistory() {
   useEffect(() => {
     loadPaymentHistory();
     loadStats();
-  }, [page, rowsPerPage, statusFilter, dateFilter]);
+  }, [page, rowsPerPage, statusFilter, dateFilter, environment]);
 
   const loadPaymentHistory = async () => {
     setLoading(true);

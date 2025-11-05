@@ -134,6 +134,15 @@ const paymentSchema = new mongoose.Schema(
     ipAddress: {
       type: String,
     },
+
+    // Environment tracking
+    environment: {
+      type: String,
+      enum: ["production", "sandbox"],
+      default: "sandbox",
+      required: true,
+      index: true,
+    },
   },
   {
     timestamps: true,

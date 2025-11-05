@@ -7,26 +7,31 @@ NODE_ENV=development
 # Database Configuration
 MONGODB_URI=mongodb://localhost:27017/bulkpayout
 
-# PayPal Configuration
-PAYPAL_CLIENT_ID=your_paypal_client_id_here
-PAYPAL_CLIENT_SECRET=your_paypal_client_secret_here
-PAYPAL_MODE=sandbox
-# Change to 'live' for production
+# PayPal Configuration - Sandbox
+PAYPAL_SANDBOX_CLIENT_ID=your_paypal_sandbox_client_id_here
+PAYPAL_SANDBOX_CLIENT_SECRET=your_paypal_sandbox_client_secret_here
 
-# Giftogram Configuration
-GIFTOGRAM_API_KEY=your_giftogram_api_key_here
-GIFTOGRAM_ENVIRONMENT=sandbox
-# Change to 'production' for live environment
+# PayPal Configuration - Production
+PAYPAL_PRODUCTION_CLIENT_ID=your_paypal_production_client_id_here
+PAYPAL_PRODUCTION_CLIENT_SECRET=your_paypal_production_client_secret_here
 
-# XE API Configuration
-XE_ACCESS_KEY=your_xe_access_key_here
-XE_ACCESS_SECRET=your_xe_access_secret_here
-XE_ENVIRONMENT=sandbox
-# Optional but recommended: default client account number for XE requests
-XE_ACCOUNT_NUMBER=your_xe_account_number_here
-# Bank account ID for contract settlement
-XE_BANK_ACCOUNT_ID=your_xe_bank_account_id_here
-# Change to 'production' for live environment
+# Giftogram Configuration - Sandbox
+GIFTOGRAM_SANDBOX_API_KEY=your_giftogram_sandbox_api_key_here
+
+# Giftogram Configuration - Production
+GIFTOGRAM_PRODUCTION_API_KEY=your_giftogram_production_api_key_here
+
+# XE API Configuration - Sandbox
+XE_SANDBOX_ACCESS_KEY=your_xe_sandbox_access_key_here
+XE_SANDBOX_ACCESS_SECRET=your_xe_sandbox_access_secret_here
+XE_SANDBOX_ACCOUNT_NUMBER=your_xe_sandbox_account_number_here
+XE_SANDBOX_BANK_ACCOUNT_ID=your_xe_sandbox_bank_account_id_here
+
+# XE API Configuration - Production
+XE_PRODUCTION_ACCESS_KEY=your_xe_production_access_key_here
+XE_PRODUCTION_ACCESS_SECRET=your_xe_production_access_secret_here
+XE_PRODUCTION_ACCOUNT_NUMBER=your_xe_production_account_number_here
+XE_PRODUCTION_BANK_ACCOUNT_ID=your_xe_production_bank_account_id_here
 
 # JWT Configuration
 JWT_SECRET=your_jwt_secret_key_here

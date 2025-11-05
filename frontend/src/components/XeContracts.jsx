@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { getAllXeContracts, approveXeContract, cancelXeContract } from "../services/xeService";
+import { useEnvironment } from "../contexts/EnvironmentContext";
 import { ArrowPathIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import Button from "./ui/Button";
 import XeContractDetailsModal from "./XeContractDetailsModal";
 
 export default function XeContracts() {
+  const { environment } = useEnvironment();
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
@@ -36,7 +38,7 @@ export default function XeContracts() {
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, environment]);
 
   // Countdown timers for contracts
   useEffect(() => {

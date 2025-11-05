@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { processPaymentBatch, getPaymentsByBatch } from "../services/paymentService";
 import { processGiftogramBatch } from "../services/giftogramService";
+import { useEnvironment } from "../contexts/EnvironmentContext";
 import {
   CreditCardIcon,
   PencilIcon,
@@ -25,6 +26,7 @@ import ErrorDisplay from "./ErrorDisplay";
 import PaymentMethodSelector from "./PaymentMethodSelector";
 
 function PaymentPreview({ data }) {
+  const { environment } = useEnvironment();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [editingRow, setEditingRow] = useState(null);
@@ -51,7 +53,7 @@ function PaymentPreview({ data }) {
         setPayments(data);
       }
     }
-  }, [data]);
+  }, [data, environment]);
 
   const loadPayments = async (batchId) => {
     try {

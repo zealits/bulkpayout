@@ -1,6 +1,6 @@
 const asyncHandler = require("../middleware/asyncHandler");
 const XeRecipient = require("../models/XeRecipient");
-const xeService = require("../services/xeService");
+const { getXeService } = require("../services/xeService");
 const { successResponse, errorResponse } = require("../utils/responseHelper");
 
 /**
@@ -138,7 +138,10 @@ function transformRowToXeRecipient(row, sheetInfo = {}) {
 // @route   POST /api/xe/create-recipients
 // @access  Public
 const createXeRecipients = asyncHandler(async (req, res) => {
-  const { sheetRows, batchId } = req.body; // Array of { sheetName, rows, inferredCountry, inferredCurrency }
+  const { sheetRows, batchId, environment } = req.body; // Array of { sheetName, rows, inferredCountry, inferredCurrency }
+  
+  // Validate environment, default to sandbox
+  const env = environment === "production" ? "production" : "sandbox";
 
   if (!Array.isArray(sheetRows) || sheetRows.length === 0) {
     return errorResponse(res, "sheetRows array is required", 400);
@@ -198,6 +201,7 @@ const createXeRecipients = asyncHandler(async (req, res) => {
         // Create recipient in XE API (use env-configured XE account number)
         console.log("👤 recipientData:", recipientData);
         console.log("🏦 recipientData.payoutMethod.bank.account:", recipientData?.payoutMethod?.bank?.account);
+        const xeService = getXeService(env);
         const apiResult = await xeService.createRecipient(recipientData);
         // console.log("📦 apiResult:", apiResult);
         // console.log("📄 apiResult.data:", apiResult?.data);
@@ -211,6 +215,7 @@ const createXeRecipients = asyncHandler(async (req, res) => {
             recipientId: apiResult.data.recipientId,
             currency: apiResult.data.currency,
             batchId: effectiveBatchId,
+            environment: env,
           };
 
           console.log("📝 xeRecipient (success, to be saved):", toSave);
@@ -294,7 +299,14 @@ module.exports = {
     const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
     const skip = (page - 1) * limit;
 
-    const query = {};
+    // Get environment from query, default to sandbox
+    let environment = req.query.environment || "sandbox";
+    environment = String(environment).trim().toLowerCase();
+    if (!["production", "sandbox"].includes(environment)) {
+      environment = "sandbox";
+    }
+
+    const query = { environment };
     if (req.query.status) {
       query.status = req.query.status;
     }
@@ -330,6 +342,9 @@ module.exports = {
     }
 
     // Attempt XE deletion first
+    // Get environment from request or recipient
+    const environment = recipient?.environment || req.body.environment || req.query.environment || "sandbox";
+    const xeService = getXeService(environment);
     const apiResult = await xeService.deleteRecipient(xeRecipientId);
 
     // If XE says not found, we still delete locally

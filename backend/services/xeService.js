@@ -3,30 +3,56 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 class XeService {
-  constructor() {
-    this.apiUrl =
-      process.env.XE_ENVIRONMENT === "production" ? "https://pay-api.xe.com" : "https://pay-api-sandbox.xe.com";
-    this.accessKey = process.env.XE_ACCESS_KEY;
-    this.accessSecret = process.env.XE_ACCESS_SECRET;
-    this.accountNumber = process.env.XE_ACCOUNT_NUMBER;
+  constructor(environment) {
+    // Environment is now required - no fallback to env vars
+    if (!environment || !["production", "sandbox"].includes(environment)) {
+      throw new Error("Environment parameter is required and must be 'production' or 'sandbox'");
+    }
+    this.currentEnvironment = environment;
+    this.configureForEnvironment(this.currentEnvironment);
+  }
 
-    console.log("🔄 XE API configuration:", {
-      environment: process.env.XE_ENVIRONMENT || "sandbox",
+  /**
+   * Configure service for specific environment
+   * @param {string} environment - 'production' or 'sandbox'
+   */
+  configureForEnvironment(environment = "sandbox") {
+    this.currentEnvironment = environment;
+    
+    // Set API URL based on environment
+    this.apiUrl =
+      environment === "production" ? "https://pay-api.xe.com" : "https://pay-api-sandbox.xe.com";
+
+    // Load credentials based on environment
+    if (environment === "production") {
+      this.accessKey = process.env.XE_PRODUCTION_ACCESS_KEY || process.env.XE_ACCESS_KEY;
+      this.accessSecret = process.env.XE_PRODUCTION_ACCESS_SECRET || process.env.XE_ACCESS_SECRET;
+      this.accountNumber = process.env.XE_PRODUCTION_ACCOUNT_NUMBER || process.env.XE_ACCOUNT_NUMBER;
+      this.bankAccountId = process.env.XE_PRODUCTION_BANK_ACCOUNT_ID || process.env.XE_BANK_ACCOUNT_ID;
+    } else {
+      this.accessKey = process.env.XE_SANDBOX_ACCESS_KEY || process.env.XE_ACCESS_KEY;
+      this.accessSecret = process.env.XE_SANDBOX_ACCESS_SECRET || process.env.XE_ACCESS_SECRET;
+      this.accountNumber = process.env.XE_SANDBOX_ACCOUNT_NUMBER || process.env.XE_ACCOUNT_NUMBER;
+      this.bankAccountId = process.env.XE_SANDBOX_BANK_ACCOUNT_ID || process.env.XE_BANK_ACCOUNT_ID;
+    }
+
+    console.log(`🔄 XE API configuration (${environment}):`, {
+      environment: this.currentEnvironment,
       apiUrl: this.apiUrl,
-      hasAccessKey: process.env.XE_ACCESS_KEY,
-      hasAccessSecret: process.env.XE_ACCESS_SECRET,
-      hasAccountNumber: process.env.XE_ACCOUNT_NUMBER,
+      hasAccessKey: !!this.accessKey,
+      hasAccessSecret: !!this.accessSecret,
+      hasAccountNumber: !!this.accountNumber,
     });
 
-    // Token management
+    // Reset token when switching environments
     this.accessToken = null;
     this.tokenExpiresAt = null;
 
     if (!this.accessKey || !this.accessSecret) {
-      console.warn("⚠️ XE API credentials not configured. XE functionality will be disabled.");
+      console.warn(`⚠️ XE API credentials not configured for ${environment}. XE functionality will be disabled.`);
     }
 
-    // Create axios instance with default configuration
+    // Recreate axios instance with new base URL
     this.client = axios.create({
       baseURL: this.apiUrl,
       headers: {
@@ -796,7 +822,18 @@ class XeService {
   }
 }
 
-// Create singleton instance
-const xeService = new XeService();
+// Create a factory function to get service instance for specific environment
+function getXeService(environment) {
+  // Environment is now required
+  if (!environment || !["production", "sandbox"].includes(environment)) {
+    throw new Error("Environment parameter is required and must be 'production' or 'sandbox'");
+  }
+  
+  // Create new instance with environment
+  return new XeService(environment);
+}
 
-module.exports = xeService;
+// Note: No default singleton instance - environment must be provided
+
+// Export factory function and class
+module.exports = { getXeService, XeService };

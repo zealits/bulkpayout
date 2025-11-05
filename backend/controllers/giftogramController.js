@@ -1,16 +1,28 @@
 const asyncHandler = require("../middleware/asyncHandler");
 const Payment = require("../models/Payment");
 const PaymentBatch = require("../models/PaymentBatch");
-const giftogramService = require("../services/giftogramService");
+const { getGiftogramService } = require("../services/giftogramService");
 const { successResponse, errorResponse } = require("../utils/responseHelper");
 
 // @desc    Get available Giftogram campaigns
 // @route   GET /api/giftogram/campaigns
 // @access  Public
 const getGiftogramCampaigns = asyncHandler(async (req, res) => {
-  console.log("🎁 Fetching Giftogram campaigns");
+  let environment = req.query.environment || req.body.environment || "sandbox";
+  
+  // Normalize environment (trim whitespace, lowercase)
+  environment = String(environment).trim().toLowerCase();
+  
+  // Validate environment - default to sandbox if invalid
+  if (!["production", "sandbox"].includes(environment)) {
+    console.warn(`Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`);
+    environment = "sandbox";
+  }
+
+  console.log(`🎁 Fetching Giftogram campaigns (environment: ${environment})`);
 
   try {
+    const giftogramService = getGiftogramService(environment);
     const result = await giftogramService.getCampaigns();
 
     if (!result.success) {
@@ -111,7 +123,9 @@ const processGiftogramBatch = asyncHandler(async (req, res) => {
       campaignId: giftogramConfig?.campaignId || batch.giftogramCampaignId,
     }));
 
-    // Process with Giftogram
+    // Process with Giftogram - use environment from batch
+    const environment = batch.environment || "sandbox";
+    const giftogramService = getGiftogramService(environment);
     const giftogramResult = await giftogramService.createBulkGiftCardOrders(orders, {
       batchSize: 5,
       delay: 1000,
@@ -312,6 +326,8 @@ const syncGiftogramBatch = asyncHandler(async (req, res) => {
     console.log(`Found ${payments.length} Giftogram orders to sync`);
 
     const orderIds = payments.map((p) => p.giftogramOrderId);
+    const environment = batch.environment || "sandbox";
+    const giftogramService = getGiftogramService(environment);
     const syncResult = await giftogramService.updateOrderStatuses(orderIds);
 
     if (!syncResult.success) {
@@ -390,9 +406,21 @@ const syncGiftogramBatch = asyncHandler(async (req, res) => {
 // @route   GET /api/giftogram/funding
 // @access  Public
 const getGiftogramFunding = asyncHandler(async (req, res) => {
-  console.log("💰 Fetching Giftogram funding balance");
+  let environment = req.query.environment || req.body.environment || "sandbox";
+  
+  // Normalize environment (trim whitespace, lowercase)
+  environment = String(environment).trim().toLowerCase();
+  
+  // Validate environment - default to sandbox if invalid
+  if (!["production", "sandbox"].includes(environment)) {
+    console.warn(`Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`);
+    environment = "sandbox";
+  }
+
+  console.log(`💰 Fetching Giftogram funding balance (environment: ${environment})`);
 
   try {
+    const giftogramService = getGiftogramService(environment);
     const result = await giftogramService.getFunding();
 
     if (!result.success) {
@@ -426,9 +454,21 @@ const getGiftogramFunding = asyncHandler(async (req, res) => {
 // @route   GET /api/giftogram/test
 // @access  Public
 const testGiftogramConnection = asyncHandler(async (req, res) => {
-  console.log("🧪 Testing Giftogram API connection");
+  let environment = req.query.environment || req.body.environment || "sandbox";
+  
+  // Normalize environment (trim whitespace, lowercase)
+  environment = String(environment).trim().toLowerCase();
+  
+  // Validate environment - default to sandbox if invalid
+  if (!["production", "sandbox"].includes(environment)) {
+    console.warn(`Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`);
+    environment = "sandbox";
+  }
+
+  console.log(`🧪 Testing Giftogram API connection (environment: ${environment})`);
 
   try {
+    const giftogramService = getGiftogramService(environment);
     const result = await giftogramService.testConnection();
 
     if (result.success) {

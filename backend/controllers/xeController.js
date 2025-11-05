@@ -4,18 +4,36 @@ const PaymentBatch = require("../models/PaymentBatch");
 const PaymentField = require("../models/PaymentField");
 const XeContract = require("../models/XeContract");
 const XeRecipient = require("../models/XeRecipient");
-const xeService = require("../services/xeService");
+const { getXeService } = require("../services/xeService");
 const { generateXeTemplate, generateXeWorkbookForSelections } = require("../utils/xeExcelGenerator");
 const { parseXeWorkbook } = require("../utils/xeWorkbookParser");
 const { successResponse, errorResponse } = require("../utils/responseHelper");
+
+// Helper function to get environment from request
+function getEnvironmentFromRequest(req) {
+  let environment = req.query.environment || req.body.environment || "sandbox";
+  
+  // Normalize environment (trim whitespace, lowercase)
+  environment = String(environment).trim().toLowerCase();
+  
+  // Validate environment - default to sandbox if invalid
+  if (!["production", "sandbox"].includes(environment)) {
+    console.warn(`Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`);
+    environment = "sandbox";
+  }
+  
+  return environment;
+}
 
 // @desc    Test XE API connection
 // @route   GET /api/xe/test
 // @access  Public
 const testXeConnection = asyncHandler(async (req, res) => {
-  console.log("🧪 Testing XE API connection");
-
   try {
+    const environment = getEnvironmentFromRequest(req);
+    console.log(`🧪 Testing XE API connection (environment: ${environment})`);
+
+    const xeService = getXeService(environment);
     const result = await xeService.testConnection();
 
     if (result.success) {
@@ -47,9 +65,11 @@ const testXeConnection = asyncHandler(async (req, res) => {
 // @route   GET /api/xe/accounts
 // @access  Public
 const getXeAccounts = asyncHandler(async (req, res) => {
-  console.log("🏦 Fetching XE accounts");
-
   try {
+    const environment = getEnvironmentFromRequest(req);
+    console.log(`🏦 Fetching XE accounts (environment: ${environment})`);
+
+    const xeService = getXeService(environment);
     const result = await xeService.getAccounts();
 
     if (!result.success) {
@@ -85,9 +105,11 @@ const getXeAccounts = asyncHandler(async (req, res) => {
 const getPaymentFields = asyncHandler(async (req, res) => {
   const { countryCode, currencyCode } = req.params;
 
-  console.log(`🌍 Fetching payment fields for ${countryCode}/${currencyCode}`);
-
   try {
+    const environment = getEnvironmentFromRequest(req);
+    console.log(`🌍 Fetching payment fields for ${countryCode}/${currencyCode} (environment: ${environment})`);
+
+    const xeService = getXeService(environment);
     const result = await xeService.getPaymentFields(countryCode, currencyCode);
 
     if (!result.success) {
@@ -131,14 +153,16 @@ const getPaymentFields = asyncHandler(async (req, res) => {
 const createXeRecipient = asyncHandler(async (req, res) => {
   const recipientData = req.body;
 
-  console.log("👤 Creating XE recipient:", recipientData.email);
-
   try {
+    const environment = getEnvironmentFromRequest(req);
+    console.log(`👤 Creating XE recipient (environment: ${environment}):`, recipientData.email);
+
     // Ensure client reference is system-generated and XE-compliant
     if (!recipientData.clientReference || typeof recipientData.clientReference !== "string") {
       recipientData.clientReference = require("../models/XeRecipient").generateClientReference();
     }
 
+    const xeService = getXeService(environment);
     const result = await xeService.createRecipient(recipientData);
 
     if (!result.success) {
@@ -172,12 +196,14 @@ const createXeRecipient = asyncHandler(async (req, res) => {
 const createXePayment = asyncHandler(async (req, res) => {
   const paymentData = req.body;
 
-  console.log("💰 Creating XE payment:", {
-    recipientId: paymentData.recipientId,
-    amount: paymentData.amount,
-  });
-
   try {
+    const environment = getEnvironmentFromRequest(req);
+    console.log(`💰 Creating XE payment (environment: ${environment}):`, {
+      recipientId: paymentData.recipientId,
+      amount: paymentData.amount,
+    });
+
+    const xeService = getXeService(environment);
     const result = await xeService.createPayment(paymentData);
 
     if (!result.success) {
@@ -211,9 +237,11 @@ const createXePayment = asyncHandler(async (req, res) => {
 const getXePaymentStatus = asyncHandler(async (req, res) => {
   const { paymentId } = req.params;
 
-  console.log(`📊 Getting XE payment status: ${paymentId}`);
-
   try {
+    const environment = getEnvironmentFromRequest(req);
+    console.log(`📊 Getting XE payment status (environment: ${environment}): ${paymentId}`);
+
+    const xeService = getXeService(environment);
     const result = await xeService.getPaymentStatus(paymentId);
 
     if (!result.success) {
@@ -450,9 +478,11 @@ const processXeBatch = asyncHandler(async (req, res) => {
 // @route   GET /api/xe/countries
 // @access  Public
 const getSupportedCountriesAndCurrencies = asyncHandler(async (req, res) => {
-  console.log("🌍 Fetching supported countries and currencies");
-
   try {
+    const environment = getEnvironmentFromRequest(req);
+    console.log(`🌍 Fetching supported countries and currencies (environment: ${environment})`);
+
+    const xeService = getXeService(environment);
     const result = await xeService.getSupportedCountriesAndCurrencies();
 
     if (!result.success) {
@@ -505,8 +535,10 @@ const generateXeExcelTemplate = asyncHandler(async (req, res) => {
     let paymentFieldDoc = await PaymentField.findOne({ countryCode, currencyCode });
 
     // If not in database or expired, fetch from API
+    const environment = getEnvironmentFromRequest(req);
     if (!paymentFieldDoc || paymentFieldDoc.isExpired()) {
-      console.log(`Fetching payment fields from XE API for ${countryCode}/${currencyCode}`);
+      console.log(`Fetching payment fields from XE API for ${countryCode}/${currencyCode} (environment: ${environment})`);
+      const xeService = getXeService(environment);
       const fieldsResult = await xeService.getPaymentFields(countryCode, currencyCode);
 
       if (fieldsResult.success && fieldsResult.data) {
@@ -589,7 +621,9 @@ const generateXeExcelTemplatesBulk = asyncHandler(async (req, res) => {
 
       let paymentFields = [];
       let paymentFieldDoc = await PaymentField.findOne({ countryCode, currencyCode });
+      const environment = getEnvironmentFromRequest(req);
       if (!paymentFieldDoc || paymentFieldDoc.isExpired()) {
+        const xeService = getXeService(environment);
         const fieldsResult = await xeService.getPaymentFields(countryCode, currencyCode);
         if (fieldsResult.success && fieldsResult.data) {
           paymentFields = fieldsResult.data;
@@ -648,12 +682,16 @@ module.exports.parseXeTemplate = parseXeTemplate;
 // @route   POST /api/xe/contracts
 // @access  Public
 const createXeContract = asyncHandler(async (req, res) => {
-  const { xeRecipientId, amount, buyCurrency } = req.body;
+  const { xeRecipientId, amount, buyCurrency, environment } = req.body;
+
+  // Validate environment, default to sandbox
+  const env = environment === "production" ? "production" : "sandbox";
 
   console.log("📝 Creating XE contract:", {
     xeRecipientId,
     amount,
     buyCurrency,
+    environment: env,
   });
 
   // Validate required fields
@@ -666,8 +704,11 @@ const createXeContract = asyncHandler(async (req, res) => {
   }
 
   try {
-    // Find recipient to get client reference
-    const recipient = await XeRecipient.findOne({ "recipientId.xeRecipientId": xeRecipientId });
+    // Find recipient to get client reference (filter by environment)
+    const recipient = await XeRecipient.findOne({ 
+      "recipientId.xeRecipientId": xeRecipientId,
+      environment: env,
+    });
     if (!recipient) {
       return errorResponse(res, "Recipient not found", 404);
     }
@@ -714,6 +755,8 @@ const createXeContract = asyncHandler(async (req, res) => {
     };
 
     // Create contract via XE API
+    const environment = getEnvironmentFromRequest(req);
+    const xeService = getXeService(environment);
     const result = await xeService.createContract(contractData);
 
     if (!result.success) {
@@ -793,6 +836,7 @@ const createXeContract = asyncHandler(async (req, res) => {
         },
         purposeOfPaymentCode: purposeOfPaymentCode,
       },
+      environment: env,
     });
 
     await contract.save();
@@ -830,7 +874,9 @@ const cancelXeContract = asyncHandler(async (req, res) => {
       return errorResponse(res, "Contract not found", 404);
     }
 
-    // Cancel contract via XE API
+    // Cancel contract via XE API - use environment from contract
+    const environment = contract.environment || "sandbox";
+    const xeService = getXeService(environment);
     const result = await xeService.cancelContract(contractNumber);
 
     if (!result.success) {
@@ -886,7 +932,9 @@ const approveXeContract = asyncHandler(async (req, res) => {
       return errorResponse(res, "Contract is already approved", 400);
     }
 
-    // Approve contract via XE API
+    // Approve contract via XE API - use environment from contract
+    const environment = contract.environment || "sandbox";
+    const xeService = getXeService(environment);
     const result = await xeService.approveContract(contractNumber);
 
     if (!result.success) {
@@ -975,6 +1023,9 @@ const getXeContractDetails = asyncHandler(async (req, res) => {
   }
 
   try {
+    // Get environment from request
+    const environment = getEnvironmentFromRequest(req);
+    const xeService = getXeService(environment);
     const result = await xeService.getContractDetails(contractNumber);
 
     if (!result.success) {
@@ -1011,14 +1062,20 @@ const getXeContractsByRecipient = asyncHandler(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
   const skip = (page - 1) * limit;
 
-  console.log(`📄 Getting XE contracts for recipient: ${xeRecipientId}`);
+  // Get environment from query, default to sandbox
+  const environment = getEnvironmentFromRequest(req);
+
+  console.log(`📄 Getting XE contracts for recipient: ${xeRecipientId}, environment: ${environment}`);
 
   if (!xeRecipientId) {
     return errorResponse(res, "xeRecipientId is required", 400);
   }
 
   try {
-    const query = { "recipientId.xeRecipientId": xeRecipientId };
+    const query = { 
+      "recipientId.xeRecipientId": xeRecipientId,
+      environment: environment,
+    };
 
     const [contracts, total] = await Promise.all([
       XeContract.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -1058,10 +1115,13 @@ const getAllXeContracts = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
   const search = req.query.search?.trim();
 
-  console.log(`📄 Getting all XE contracts - page: ${page}, limit: ${limit}`);
+  // Get environment from query, default to sandbox
+  const environment = getEnvironmentFromRequest(req);
+
+  console.log(`📄 Getting all XE contracts - page: ${page}, limit: ${limit}, environment: ${environment}`);
 
   try {
-    const query = {};
+    const query = { environment };
 
     // Add search functionality
     if (search) {

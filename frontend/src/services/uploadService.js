@@ -3,6 +3,10 @@ import api from "./api";
 // Upload Excel file and create payment batch
 export const uploadExcelFile = async (formData) => {
   try {
+    // Add environment to FormData
+    const environment = localStorage.getItem("bulkpayout_environment") || "sandbox";
+    formData.append("environment", environment);
+    
     const response = await api.post("/upload/excel", formData, {
       headers: {
         "Content-Type": "multipart/form-data",

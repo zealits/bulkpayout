@@ -6,6 +6,7 @@ import {
   approveXeContract,
   cancelXeContract,
 } from "../services/xeService";
+import { useEnvironment } from "../contexts/EnvironmentContext";
 import { ArrowPathIcon, MagnifyingGlassIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import Modal from "./ui/Modal";
 import Button from "./ui/Button";
@@ -391,6 +392,7 @@ function ContractDetailsView({ contract, secondsLeft, error, approvingContract }
 }
 
 export default function XeRecipients() {
+  const { environment } = useEnvironment();
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
@@ -453,7 +455,7 @@ export default function XeRecipients() {
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, environment]);
 
   const handleSearch = (e) => {
     e.preventDefault();

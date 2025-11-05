@@ -13,7 +13,10 @@ const uploadExcel = asyncHandler(async (req, res) => {
   }
 
   const { buffer, originalname, size } = req.file;
-  const { batchName, description } = req.body;
+  const { batchName, description, environment } = req.body;
+
+  // Validate environment, default to sandbox
+  const env = environment === "production" ? "production" : "sandbox";
 
   // Parse the Excel file
   const parseResult = parseExcelFile(buffer, originalname);
@@ -45,6 +48,7 @@ const uploadExcel = asyncHandler(async (req, res) => {
       fileSize: size,
       status: "uploaded",
       ipAddress: req.ip,
+      environment: env,
     });
 
     await batch.save();
@@ -55,6 +59,7 @@ const uploadExcel = asyncHandler(async (req, res) => {
       batchId,
       createdBy: "upload",
       ipAddress: req.ip,
+      environment: env,
     }));
 
     await Payment.insertMany(payments);

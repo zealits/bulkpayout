@@ -1,13 +1,26 @@
 const axios = require("axios");
 
 // PayPal configuration
-function getPayPalConfig() {
-  const clientId = process.env.PAYPAL_CLIENT_ID;
-  const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
-  const mode = process.env.PAYPAL_MODE || "sandbox";
+function getPayPalConfig(environment) {
+  // Environment is now required - no fallback to env vars
+  if (!environment || !["production", "sandbox"].includes(environment)) {
+    throw new Error("Environment parameter is required and must be 'production' or 'sandbox'");
+  }
+  
+  const mode = environment === "production" ? "live" : "sandbox";
+
+  // Load credentials based on environment
+  let clientId, clientSecret;
+  if (environment === "production") {
+    clientId = process.env.PAYPAL_PRODUCTION_CLIENT_ID || process.env.PAYPAL_CLIENT_ID;
+    clientSecret = process.env.PAYPAL_PRODUCTION_CLIENT_SECRET || process.env.PAYPAL_CLIENT_SECRET;
+  } else {
+    clientId = process.env.PAYPAL_SANDBOX_CLIENT_ID || process.env.PAYPAL_CLIENT_ID;
+    clientSecret = process.env.PAYPAL_SANDBOX_CLIENT_SECRET || process.env.PAYPAL_CLIENT_SECRET;
+  }
 
   if (!clientId || !clientSecret) {
-    throw new Error("PayPal credentials not found in environment variables");
+    throw new Error(`PayPal ${env} credentials not found in environment variables`);
   }
 
   const baseUrl = mode === "live" ? "https://api.paypal.com" : "https://api.sandbox.paypal.com";
@@ -16,12 +29,16 @@ function getPayPalConfig() {
     clientId,
     clientSecret,
     baseUrl,
+    environment: environment,
   };
 }
 
 // Get PayPal access token
-async function getAccessToken() {
-  const config = getPayPalConfig();
+async function getAccessToken(environment) {
+  if (!environment) {
+    throw new Error("Environment parameter is required");
+  }
+  const config = getPayPalConfig(environment);
 
   try {
     const auth = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64");
@@ -67,12 +84,16 @@ function buildPayoutRequest(batchId, payments, senderBatchHeader = {}) {
 }
 
 // Create payout
-async function createPayout(batchId, payments, senderBatchHeader = {}) {
+async function createPayout(batchId, payments, senderBatchHeader = {}, environment) {
+  if (!environment) {
+    throw new Error("Environment parameter is required");
+  }
+  
   try {
-    console.log(`Creating PayPal payout for batch ${batchId} with ${payments.length} payments`);
+    console.log(`Creating PayPal payout for batch ${batchId} with ${payments.length} payments (environment: ${environment})`);
 
-    const config = getPayPalConfig();
-    const accessToken = await getAccessToken();
+    const config = getPayPalConfig(environment);
+    const accessToken = await getAccessToken(environment);
 
     const payoutData = buildPayoutRequest(batchId, payments, senderBatchHeader);
 
@@ -112,10 +133,14 @@ async function createPayout(batchId, payments, senderBatchHeader = {}) {
 }
 
 // Get account balance information
-async function getAccountBalance() {
+async function getAccountBalance(environment) {
+  if (!environment) {
+    throw new Error("Environment parameter is required");
+  }
+  
   try {
-    const config = getPayPalConfig();
-    const accessToken = await getAccessToken();
+    const config = getPayPalConfig(environment);
+    const accessToken = await getAccessToken(environment);
 
     // Try to get balance using PayPal Reporting API
     const response = await axios.get(`${config.baseUrl}/v1/reporting/balances`, {
@@ -231,12 +256,16 @@ async function getAccountBalance() {
 }
 
 // Get payout batch details
-async function getPayoutBatch(payoutBatchId) {
+async function getPayoutBatch(payoutBatchId, environment) {
+  if (!environment) {
+    throw new Error("Environment parameter is required");
+  }
+  
   try {
-    console.log(`Getting PayPal payout batch details for: ${payoutBatchId}`);
+    console.log(`Getting PayPal payout batch details for: ${payoutBatchId} (environment: ${environment})`);
 
-    const config = getPayPalConfig();
-    const accessToken = await getAccessToken();
+    const config = getPayPalConfig(environment);
+    const accessToken = await getAccessToken(environment);
 
     const response = await axios.get(`${config.baseUrl}/v1/payments/payouts/${payoutBatchId}`, {
       headers: {
@@ -270,10 +299,14 @@ async function getPayoutBatch(payoutBatchId) {
 }
 
 // Get payout item details
-async function getPayoutItem(payoutItemId) {
+async function getPayoutItem(payoutItemId, environment) {
+  if (!environment) {
+    throw new Error("Environment parameter is required");
+  }
+  
   try {
-    const config = getPayPalConfig();
-    const accessToken = await getAccessToken();
+    const config = getPayPalConfig(environment);
+    const accessToken = await getAccessToken(environment);
 
     const response = await axios.get(`${config.baseUrl}/v1/payments/payouts-item/${payoutItemId}`, {
       headers: {

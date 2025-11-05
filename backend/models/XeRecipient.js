@@ -84,6 +84,15 @@ const xeRecipientSchema = new mongoose.Schema(
 
     // Batch identifier for grouping recipients created from a single Excel upload
     batchId: { type: String, index: true },
+
+    // Environment tracking
+    environment: {
+      type: String,
+      enum: ["production", "sandbox"],
+      default: "sandbox",
+      required: true,
+      index: true,
+    },
   },
   {
     timestamps: true,

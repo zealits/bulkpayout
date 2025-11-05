@@ -3,19 +3,46 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 class GiftogramService {
-  constructor() {
+  constructor(environment) {
+    // Environment is now required - no fallback to env vars
+    if (!environment || !["production", "sandbox"].includes(environment)) {
+      throw new Error("Environment parameter is required and must be 'production' or 'sandbox'");
+    }
+    this.currentEnvironment = environment;
+    this.configureForEnvironment(this.currentEnvironment);
+  }
+
+  /**
+   * Configure service for specific environment
+   * @param {string} environment - 'production' or 'sandbox'
+   */
+  configureForEnvironment(environment = "sandbox") {
+    this.currentEnvironment = environment;
+    
+    // Set API URL based on environment
     this.apiUrl =
-      process.env.GIFTOGRAM_ENVIRONMENT === "production"
+      environment === "production"
         ? "https://api.giftogram.com"
         : "https://sandbox-api.giftogram.com";
-    this.apiKey = process.env.GIFTOGRAM_API_KEY;
 
-    console.log("🔄 Giftogram API key:", this.apiKey);
-    if (!this.apiKey) {
-      console.warn("⚠️ Giftogram API key not configured. Giftogram functionality will be disabled.");
+    // Load API key based on environment
+    if (environment === "production") {
+      this.apiKey = process.env.GIFTOGRAM_PRODUCTION_API_KEY || process.env.GIFTOGRAM_API_KEY;
+    } else {
+      this.apiKey = process.env.GIFTOGRAM_SANDBOX_API_KEY || process.env.GIFTOGRAM_API_KEY;
     }
 
-    // Create axios instance with default configuration
+    console.log(`🔄 Giftogram API configuration (${environment}):`, {
+      environment: this.currentEnvironment,
+      apiUrl: this.apiUrl,
+      hasApiKey: !!this.apiKey,
+    });
+
+    if (!this.apiKey) {
+      console.warn(`⚠️ Giftogram API key not configured for ${environment}. Giftogram functionality will be disabled.`);
+    }
+
+    // Recreate axios instance with new base URL
     this.client = axios.create({
       baseURL: this.apiUrl,
       headers: {
@@ -431,7 +458,18 @@ class GiftogramService {
   }
 }
 
-// Create singleton instance
-const giftogramService = new GiftogramService();
+// Create a factory function to get service instance for specific environment
+function getGiftogramService(environment) {
+  // Environment is now required
+  if (!environment || !["production", "sandbox"].includes(environment)) {
+    throw new Error("Environment parameter is required and must be 'production' or 'sandbox'");
+  }
+  
+  // Create new instance with environment
+  return new GiftogramService(environment);
+}
 
-module.exports = giftogramService;
+// Note: No default singleton instance - environment must be provided
+
+// Export factory function and class
+module.exports = { getGiftogramService, GiftogramService };

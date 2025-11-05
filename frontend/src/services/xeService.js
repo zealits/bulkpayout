@@ -34,7 +34,7 @@ export const getPaymentFields = async (countryCode, currencyCode) => {
 // Parse uploaded XE workbook (multi-sheet)
 export const parseXeWorkbook = async (formData) => {
   try {
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "https://bulkpayout.aiiventure.com/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -106,7 +106,7 @@ export const getSupportedCountriesAndCurrencies = async () => {
 export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRecipients }) => {
   try {
     // Use axios directly to bypass the interceptor for blob responses
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "https://bulkpayout.aiiventure.com/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -162,7 +162,7 @@ export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRe
 // Generate multi-sheet XE Excel template
 export const generateXeTemplateBulk = async (selections) => {
   try {
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "https://bulkpayout.aiiventure.com/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {

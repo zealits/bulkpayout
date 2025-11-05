@@ -47,13 +47,14 @@ export const processPaymentBatch = async (batchId, senderBatchHeader = {}) => {
 };
 
 // Get payment statistics
-export const getPaymentStats = async (batchId = null, period = null) => {
+export const getPaymentStats = async (batchId = null, period = null, paymentMethod = null) => {
   try {
     let url = "/payments/stats";
     const params = new URLSearchParams();
 
     if (batchId) params.append("batchId", batchId);
     if (period) params.append("period", period);
+    if (paymentMethod) params.append("paymentMethod", paymentMethod);
 
     if (params.toString()) {
       url += `?${params.toString()}`;

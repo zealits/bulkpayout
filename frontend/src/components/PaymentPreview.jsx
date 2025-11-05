@@ -25,7 +25,7 @@ import { LoadingOverlay, Spinner } from "./ui/Loading";
 import ErrorDisplay from "./ErrorDisplay";
 import PaymentMethodSelector from "./PaymentMethodSelector";
 
-function PaymentPreview({ data }) {
+function PaymentPreview({ data, defaultMethod = "paypal" }) {
   const { environment } = useEnvironment();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -37,8 +37,7 @@ function PaymentPreview({ data }) {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ open: false, index: null });
-  const [paymentMethodModal, setPaymentMethodModal] = useState(false);
-  const [currentPaymentMethod, setCurrentPaymentMethod] = useState("paypal");
+  const [currentPaymentMethod, setCurrentPaymentMethod] = useState(defaultMethod || "paypal");
 
   // If data is from upload result, extract batch info
   useEffect(() => {
@@ -46,7 +45,9 @@ function PaymentPreview({ data }) {
       if (data.batch) {
         // Data from upload result
         setBatchInfo(data.batch);
-        setCurrentPaymentMethod(data.batch.paymentMethod || "paypal");
+        // In section-specific screens (e.g., Gift Cards), prefer the provided defaultMethod
+        // so the header and actions match the selected section even if the batch has another method.
+        setCurrentPaymentMethod(defaultMethod || data.batch.paymentMethod || "paypal");
         loadPayments(data.batch.batchId);
       } else if (Array.isArray(data)) {
         // Legacy data array
@@ -220,7 +221,6 @@ function PaymentPreview({ data }) {
   const handlePaymentMethodChange = (methodData) => {
     setCurrentPaymentMethod(methodData.paymentMethod);
     setBatchInfo(methodData.batch);
-    setPaymentMethodModal(false);
     setSuccessMessage(`Payment method updated to ${getPaymentMethodName(methodData.paymentMethod)}`);
   };
 
@@ -278,17 +278,23 @@ function PaymentPreview({ data }) {
                 {getPaymentMethodName(currentPaymentMethod)}
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPaymentMethodModal(true)}
-              icon={<CogIcon className="w-4 h-4" />}
-            >
-              Change Method
-            </Button>
           </div>
         </div>
       </div>
+
+      {currentPaymentMethod === "giftogram" && (
+        <Card className="p-0">
+          <div className="p-6">
+            <PaymentMethodSelector
+              batch={batchInfo}
+              mode="config-only"
+              allowedMethod="giftogram"
+              onMethodChange={handlePaymentMethodChange}
+              onError={setError}
+            />
+          </div>
+        </Card>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -557,17 +563,10 @@ function PaymentPreview({ data }) {
         </p>
       </Modal>
 
-      {/* Payment Method Selection Modal */}
-      <Modal
-        isOpen={paymentMethodModal}
-        onClose={() => setPaymentMethodModal(false)}
-        title="Select Payment Method"
-        size="xl"
-      >
-        <PaymentMethodSelector batch={batchInfo} onMethodChange={handlePaymentMethodChange} onError={setError} />
-      </Modal>
+      {/* Payment Method Selection Modal removed in config-only flow */}
     </div>
   );
 }
 
 export default PaymentPreview;
+

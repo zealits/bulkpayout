@@ -719,10 +719,14 @@ const createXeContract = asyncHandler(async (req, res) => {
     // Determine purpose of payment code
     const purposeOfPaymentCode = buyCurrency === "INR" ? "CORP_INR_UTILTY" : "CORP_INVOICE";
 
-    // Get bank account ID from environment
-    const bankAccountId = process.env.XE_BANK_ACCOUNT_ID;
+    // Get XE service instance to access environment-specific configuration
+    const environment = getEnvironmentFromRequest(req);
+    const xeService = getXeService(environment);
+
+    // Get bank account ID from XE service (handles environment-specific variables)
+    const bankAccountId = xeService.bankAccountId;
     if (!bankAccountId) {
-      return errorResponse(res, "XE_BANK_ACCOUNT_ID is not configured", 500);
+      return errorResponse(res, `XE_BANK_ACCOUNT_ID is not configured for ${env} environment. Please set XE_${env.toUpperCase()}_BANK_ACCOUNT_ID or XE_BANK_ACCOUNT_ID in your environment variables.`, 500);
     }
 
     // Build contract request payload
@@ -755,8 +759,6 @@ const createXeContract = asyncHandler(async (req, res) => {
     };
 
     // Create contract via XE API
-    const environment = getEnvironmentFromRequest(req);
-    const xeService = getXeService(environment);
     const result = await xeService.createContract(contractData);
 
     if (!result.success) {

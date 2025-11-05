@@ -193,10 +193,15 @@ class GiftogramService {
 
       const response = await this.client.post("/api/v1/orders", payload);
 
+      // Extract order_id from nested response structure
+      const orderId = response.data?.data?.order_id || response.data?.order_id || response.data?.id;
+      const recipientStatus = response.data?.data?.recipients?.[0]?.status || response.data?.recipients?.[0]?.status;
+
       console.log(`✅ Giftogram order created successfully:`, {
         external_id: payload.external_id,
-        order_id: response.data?.id,
-        status: response.data?.status,
+        order_id: orderId,
+        recipient_status: recipientStatus,
+        status: response.data?.data?.status || response.data?.status,
       });
 
       return {
@@ -204,6 +209,8 @@ class GiftogramService {
         data: {
           ...response.data,
           external_id: externalId,
+          // Ensure order_id is accessible at the top level for easy access
+          order_id: orderId,
         },
         error: null,
       };

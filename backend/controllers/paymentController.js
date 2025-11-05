@@ -320,10 +320,17 @@ const processPaymentBatch = asyncHandler(async (req, res) => {
 // @route   GET /api/payments/stats
 // @access  Public
 const getPaymentStats = asyncHandler(async (req, res) => {
-  const { batchId, period } = req.query;
+  const { batchId, period, paymentMethod } = req.query;
+
+  // Get environment from query, default to sandbox
+  let environment = req.query.environment || "sandbox";
+  environment = String(environment).trim().toLowerCase();
+  if (!["production", "sandbox"].includes(environment)) {
+    environment = "sandbox";
+  }
 
   // Build date filter
-  let dateFilter = {};
+  let dateFilter = { environment };
   if (period) {
     const now = new Date();
     let startDate;
@@ -347,10 +354,23 @@ const getPaymentStats = asyncHandler(async (req, res) => {
     }
   }
 
-  // Build match criteria
-  let matchCriteria = { ...dateFilter };
+  // Build match criteria for payments
+  let matchCriteria = { environment };
   if (batchId) {
     matchCriteria.batchId = batchId;
+  }
+  if (paymentMethod) {
+    matchCriteria.paymentMethod = paymentMethod;
+  }
+  // Add date filter to payment match if period is specified
+  if (dateFilter.createdAt) {
+    matchCriteria.createdAt = dateFilter.createdAt;
+  }
+
+  // Build batch filter
+  let batchFilter = { ...dateFilter };
+  if (paymentMethod) {
+    batchFilter.paymentMethod = paymentMethod;
   }
 
   // Get payment statistics
@@ -367,7 +387,7 @@ const getPaymentStats = asyncHandler(async (req, res) => {
 
   // Get batch statistics
   const batchStats = await PaymentBatch.aggregate([
-    { $match: dateFilter },
+    { $match: batchFilter },
     {
       $group: {
         _id: null,

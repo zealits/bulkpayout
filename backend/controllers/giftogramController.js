@@ -179,16 +179,46 @@ const processGiftogramBatch = asyncHandler(async (req, res) => {
       });
 
       if (result.success && result.data) {
-        // Successful gift card creation
-        await payment.updateStatus("completed", {
-          giftogramOrderId: result.data.id,
-          giftogramExternalId: result.data.external_id,
+        // Extract order_id from nested response structure
+        const orderId = result.data.data?.order_id || result.data.order_id || result.data.id;
+        const externalId = result.data.data?.external_id || result.data.external_id;
+        const recipientStatus = result.data.data?.recipients?.[0]?.status || result.data.recipients?.[0]?.status;
+        const orderStatus = result.data.data?.status || result.data.status;
+
+        // Determine payment status based on recipient status
+        // If recipient status is "pending", payment should be "processing"
+        // If recipient status is "sent", payment should be "completed"
+        let paymentStatus = "processing";
+        if (recipientStatus === "sent") {
+          paymentStatus = "completed";
+        } else if (recipientStatus === "pending") {
+          paymentStatus = "processing";
+        }
+
+        console.log(`Updating payment with Giftogram data:`, {
+          orderId,
+          externalId,
+          recipientStatus,
+          orderStatus,
+          paymentStatus,
+        });
+
+        // Successful gift card creation - store order_id and set appropriate status
+        const updateData = {
+          giftogramOrderId: orderId, // Store order_id for later status checks
+          giftogramExternalId: externalId,
           giftogramCampaignId: giftogramConfig?.campaignId || batch.giftogramCampaignId,
           giftogramMessage: giftogramConfig?.message || batch.giftogramMessage,
           giftogramSubject: giftogramConfig?.subject || batch.giftogramSubject,
-          giftogramStatus: result.data.status,
-          completedAt: new Date(),
-        });
+          giftogramStatus: orderStatus,
+        };
+
+        // Only set completedAt if status is completed
+        if (paymentStatus === "completed") {
+          updateData.completedAt = new Date();
+        }
+
+        await payment.updateStatus(paymentStatus, updateData);
       } else {
         // Failed gift card creation
         await payment.updateStatus("failed", {
@@ -350,20 +380,35 @@ const syncGiftogramBatch = asyncHandler(async (req, res) => {
           const oldStatus = payment.status;
           let newStatus = payment.status;
 
-          // Map Giftogram status to our status
-          if (result.data.status === "delivered") {
+          // Extract recipient status from nested response structure
+          const responseData = result.data.data || result.data;
+          const recipientStatus = responseData.recipients?.[0]?.status;
+          const orderStatus = responseData.status || result.data.status;
+
+          // Check recipient status first - "sent" means completed
+          if (recipientStatus === "sent") {
             newStatus = "completed";
-          } else if (result.data.status === "failed" || result.data.status === "cancelled") {
-            newStatus = "failed";
-          } else if (result.data.status === "processing" || result.data.status === "pending") {
+          } else if (recipientStatus === "pending") {
             newStatus = "processing";
+          } else {
+            // Fallback to order status mapping if recipient status not available
+            if (orderStatus === "delivered" || orderStatus === "sent") {
+              newStatus = "completed";
+            } else if (orderStatus === "failed" || orderStatus === "cancelled") {
+              newStatus = "failed";
+            } else if (orderStatus === "processing" || orderStatus === "pending") {
+              newStatus = "processing";
+            }
           }
 
           if (newStatus !== oldStatus) {
             await payment.updateStatus(newStatus, {
-              giftogramStatus: result.data.status,
+              giftogramStatus: orderStatus,
             });
-            console.log(`Updated payment ${payment._id} status from ${oldStatus} to ${newStatus}`);
+            console.log(`Updated payment ${payment._id} status from ${oldStatus} to ${newStatus}`, {
+              recipientStatus,
+              orderStatus,
+            });
             updatedCount++;
           }
         }

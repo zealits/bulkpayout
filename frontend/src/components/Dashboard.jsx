@@ -40,9 +40,24 @@ import { getDashboardStats } from "../services/paymentService";
 
 const menuItems = [
   { text: "Dashboard", icon: HomeIcon, component: "dashboard" },
-  { text: "Upload Excel", icon: ArrowUpTrayIcon, component: "upload" },
-  { text: "Payment Preview", icon: CreditCardIcon, component: "preview" },
-  { text: "Payment History", icon: ClockIcon, component: "history" },
+  {
+    text: "PayPal",
+    icon: CreditCardIcon,
+    children: [
+      { text: "Upload Excel", icon: ArrowUpTrayIcon, component: "paypal-upload" },
+      { text: "Payment Preview", icon: CreditCardIcon, component: "paypal-preview" },
+      { text: "Payment History", icon: ClockIcon, component: "paypal-history" },
+    ],
+  },
+  {
+    text: "Gift Cards",
+    icon: GiftIcon,
+    children: [
+      { text: "Upload Excel", icon: ArrowUpTrayIcon, component: "gift-upload" },
+      { text: "Payment Preview", icon: GiftIcon, component: "gift-preview" },
+      { text: "Payment History", icon: ClockIcon, component: "gift-history" },
+    ],
+  },
   {
     text: "XE Payment",
     icon: BuildingLibraryIcon,
@@ -59,8 +74,9 @@ const menuItems = [
 function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState("dashboard");
-  const [uploadedData, setUploadedData] = useState(null);
-  const [expandedMenus, setExpandedMenus] = useState({ "XE Payment": true });
+  const [paypalUploadedData, setPaypalUploadedData] = useState(null);
+  const [giftUploadedData, setGiftUploadedData] = useState(null);
+  const [expandedMenus, setExpandedMenus] = useState({ "PayPal": true, "Gift Cards": true, "XE Payment": true });
   const { isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const { environment, toggleEnvironment, isProduction, isSandbox } = useEnvironment();
@@ -85,12 +101,18 @@ function Dashboard() {
 
   const renderComponent = () => {
     switch (selectedComponent) {
-      case "upload":
-        return <ExcelUpload onDataUpload={setUploadedData} />;
-      case "preview":
-        return <PaymentPreview data={uploadedData} />;
-      case "history":
-        return <PaymentHistory />;
+      case "paypal-upload":
+        return <ExcelUpload onDataUpload={setPaypalUploadedData} />;
+      case "paypal-preview":
+        return <PaymentPreview data={paypalUploadedData} defaultMethod="paypal" />;
+      case "paypal-history":
+        return <PaymentHistory method="paypal" />;
+      case "gift-upload":
+        return <ExcelUpload onDataUpload={setGiftUploadedData} defaultMethod="giftogram" />;
+      case "gift-preview":
+        return <PaymentPreview data={giftUploadedData} defaultMethod="giftogram" />;
+      case "gift-history":
+        return <PaymentHistory method="giftogram" />;
       case "xe-template":
         return <XeTemplateDownload />;
       case "xe-upload":
@@ -102,7 +124,7 @@ function Dashboard() {
       case "account":
         return <AccountInfo />;
       default:
-        return <DashboardHome uploadedData={uploadedData} />;
+        return <DashboardHome uploadedData={paypalUploadedData || giftUploadedData} />;
     }
   };
 

@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { uploadExcelFile, validateExcelFile } from "../services/uploadService";
+import { updateBatchPaymentMethod } from "../services/paymentService";
 import {
   CloudArrowUpIcon,
   DocumentIcon,
@@ -15,7 +16,7 @@ import Table from "./ui/Table";
 import Badge from "./ui/Badge";
 import { LoadingOverlay, Spinner } from "./ui/Loading";
 
-function ExcelUpload({ onDataUpload }) {
+function ExcelUpload({ onDataUpload, defaultMethod = null }) {
   const [file, setFile] = useState(null);
   const [parsedData, setParsedData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -120,11 +121,27 @@ function ExcelUpload({ onDataUpload }) {
       const response = await uploadExcelFile(formData);
 
       if (response.success) {
-        setUploadResult(response.data);
+        let result = response.data;
+        // If a default method is specified (e.g., giftogram), update the batch
+        if (defaultMethod && result?.batch?.batchId && result?.batch?.paymentMethod !== defaultMethod) {
+          try {
+            const methodResp = await updateBatchPaymentMethod(result.batch.batchId, defaultMethod, {});
+            if (methodResp.success && methodResp.data?.batch) {
+              result = { ...result, batch: methodResp.data.batch };
+            } else {
+              // Fallback local update for UI consistency
+              result = { ...result, batch: { ...result.batch, paymentMethod: defaultMethod } };
+            }
+          } catch (_) {
+            // Keep UI responsive even if method update fails; user can configure later
+            result = { ...result, batch: { ...result.batch, paymentMethod: defaultMethod } };
+          }
+        }
+        setUploadResult(result);
         setError(null);
         // Notify parent component about successful upload
         if (onDataUpload) {
-          onDataUpload(response.data);
+          onDataUpload(result);
         }
       }
     } catch (err) {

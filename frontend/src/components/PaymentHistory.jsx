@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { getPaymentBatches, getPaymentStats, syncWithPayPal, getPaymentBatch } from "../services/paymentService";
+import { syncGiftogramBatch } from "../services/giftogramService";
 import { useEnvironment } from "../contexts/EnvironmentContext";
 import {
   MagnifyingGlassIcon,
@@ -23,7 +24,7 @@ import Badge from "./ui/Badge";
 import Modal from "./ui/Modal";
 import { LoadingOverlay, Spinner } from "./ui/Loading";
 
-function PaymentHistory() {
+function PaymentHistory({ method = "paypal" }) {
   const { environment } = useEnvironment();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -39,10 +40,17 @@ function PaymentHistory() {
   const [batchDetails, setBatchDetails] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
+  // Reset page when payment method changes
+  useEffect(() => {
+    setPage(0);
+    setSearchTerm("");
+    setStatusFilter("all");
+  }, [method]);
+
   useEffect(() => {
     loadPaymentHistory();
     loadStats();
-  }, [page, rowsPerPage, statusFilter, dateFilter, environment]);
+  }, [page, rowsPerPage, statusFilter, dateFilter, environment, method]);
 
   const loadPaymentHistory = async () => {
     setLoading(true);
@@ -60,7 +68,7 @@ function PaymentHistory() {
 
   const loadStats = async () => {
     try {
-      const response = await getPaymentStats(null, dateFilter === "all" ? null : dateFilter);
+      const response = await getPaymentStats(null, dateFilter === "all" ? null : dateFilter, method);
       if (response.success) {
         setStats(response.data);
       }
@@ -85,6 +93,13 @@ function PaymentHistory() {
           text: `Successfully synced with PayPal. Status: ${response.data.batch.paypalBatchStatus || "Updated"}`,
         });
         loadPaymentHistory();
+        // Reload batch details if modal is open
+        if (selectedBatch && selectedBatch.batchId === batchId) {
+          const detailsResponse = await getPaymentBatch(batchId);
+          if (detailsResponse.success) {
+            setBatchDetails(detailsResponse.data);
+          }
+        }
       } else {
         setSyncMessage({
           type: "error",
@@ -96,6 +111,41 @@ function PaymentHistory() {
       setSyncMessage({
         type: "error",
         text: `Error syncing with PayPal: ${error.message}`,
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncWithGiftogram = async (batchId) => {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const response = await syncGiftogramBatch(batchId);
+      if (response.success) {
+        setSyncMessage({
+          type: "success",
+          text: `Successfully synced with Giftogram. Updated ${response.data.syncDetails?.paymentsUpdated || 0} payments.`,
+        });
+        loadPaymentHistory();
+        // Reload batch details if modal is open
+        if (selectedBatch && selectedBatch.batchId === batchId) {
+          const detailsResponse = await getPaymentBatch(batchId);
+          if (detailsResponse.success) {
+            setBatchDetails(detailsResponse.data);
+          }
+        }
+      } else {
+        setSyncMessage({
+          type: "error",
+          text: "Failed to sync with Giftogram. Please try again.",
+        });
+      }
+    } catch (error) {
+      console.error("Error syncing with Giftogram:", error);
+      setSyncMessage({
+        type: "error",
+        text: `Error syncing with Giftogram: ${error.message}`,
       });
     } finally {
       setSyncing(false);
@@ -132,6 +182,7 @@ function PaymentHistory() {
   };
 
   const filteredData = paymentBatches.filter((batch) => {
+    if (method && batch.paymentMethod && batch.paymentMethod !== method) return false;
     const matchesSearch =
       batch.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       batch.batchId.toLowerCase().includes(searchTerm.toLowerCase());
@@ -312,9 +363,8 @@ function PaymentHistory() {
               <Table.Header>
                 <Table.Row>
                   <Table.Head>Status</Table.Head>
-                  <Table.Head>Batch Name</Table.Head>
                   <Table.Head>Batch ID</Table.Head>
-                  <Table.Head>PayPal Status</Table.Head>
+                  {method === "paypal" && <Table.Head>PayPal Status</Table.Head>}
                   <Table.Head>Total Amount</Table.Head>
                   <Table.Head>Payments</Table.Head>
                   <Table.Head>Upload Date</Table.Head>
@@ -328,20 +378,19 @@ function PaymentHistory() {
                       <Badge variant={getStatusVariant(batch.status)}>{batch.status}</Badge>
                     </Table.Cell>
                     <Table.Cell>
-                      <div className="font-medium text-gray-900 dark:text-white">{batch.name}</div>
-                    </Table.Cell>
-                    <Table.Cell>
                       <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{batch.batchId}</code>
                     </Table.Cell>
-                    <Table.Cell>
-                      {batch.paypalBatchStatus ? (
-                        <Badge variant={getPayPalStatusVariant(batch.paypalBatchStatus)}>
-                          {batch.paypalBatchStatus}
-                        </Badge>
-                      ) : (
-                        <span className="text-gray-500 dark:text-gray-400 text-sm">Not synced</span>
-                      )}
-                    </Table.Cell>
+                    {method === "paypal" && (
+                      <Table.Cell>
+                        {batch.paypalBatchStatus ? (
+                          <Badge variant={getPayPalStatusVariant(batch.paypalBatchStatus)}>
+                            {batch.paypalBatchStatus}
+                          </Badge>
+                        ) : (
+                          <span className="text-gray-500 dark:text-gray-400 text-sm">Not synced</span>
+                        )}
+                      </Table.Cell>
+                    )}
                     <Table.Cell>
                       <div className="font-semibold text-gray-900 dark:text-white">${batch.totalAmount.toFixed(2)}</div>
                     </Table.Cell>
@@ -353,15 +402,28 @@ function PaymentHistory() {
                     </Table.Cell>
                     <Table.Cell>
                       <div className="flex space-x-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleSyncWithPayPal(batch.batchId)}
-                          disabled={syncing || !batch.paypalPayoutBatchId}
-                          icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-4 h-4" />}
-                        >
-                          Sync
-                        </Button>
+                        {method === "paypal" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleSyncWithPayPal(batch.batchId)}
+                            disabled={syncing || !batch.paypalPayoutBatchId}
+                            icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-4 h-4" />}
+                          >
+                            Sync
+                          </Button>
+                        )}
+                        {method === "giftogram" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleSyncWithGiftogram(batch.batchId)}
+                            disabled={syncing}
+                            icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-4 h-4" />}
+                          >
+                            Sync
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -447,12 +509,22 @@ function PaymentHistory() {
                     <span className="text-gray-500 dark:text-gray-400">Status:</span>
                     <Badge variant={getStatusVariant(batchDetails.batch.status)}>{batchDetails.batch.status}</Badge>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500 dark:text-gray-400">PayPal Batch ID:</span>
-                    <span className="text-gray-900 dark:text-white">
-                      {batchDetails.batch.paypalPayoutBatchId || "N/A"}
-                    </span>
-                  </div>
+                  {batchDetails.batch.paymentMethod === "paypal" && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500 dark:text-gray-400">PayPal Batch ID:</span>
+                      <span className="text-gray-900 dark:text-white">
+                        {batchDetails.batch.paypalPayoutBatchId || "N/A"}
+                      </span>
+                    </div>
+                  )}
+                  {batchDetails.batch.paymentMethod === "giftogram" && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500 dark:text-gray-400">Giftogram Campaign ID:</span>
+                      <span className="text-gray-900 dark:text-white">
+                        {batchDetails.batch.giftogramCampaignId || "N/A"}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-gray-500 dark:text-gray-400">Total Amount:</span>
                     <span className="font-semibold text-gray-900 dark:text-white">
@@ -496,8 +568,9 @@ function PaymentHistory() {
                       <Table.Head>Email</Table.Head>
                       <Table.Head>Amount</Table.Head>
                       <Table.Head>Status</Table.Head>
-                      <Table.Head>PayPal Status</Table.Head>
-                      <Table.Head>Transaction ID</Table.Head>
+                        {batchDetails.batch.paymentMethod === "paypal" && <Table.Head>PayPal Status</Table.Head>}
+                        {batchDetails.batch.paymentMethod === "giftogram" && <Table.Head>Order ID</Table.Head>}
+                        <Table.Head>Transaction ID</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -509,18 +582,27 @@ function PaymentHistory() {
                         <Table.Cell>
                           <Badge variant={getStatusVariant(payment.status)}>{payment.status}</Badge>
                         </Table.Cell>
-                        <Table.Cell>
-                          {payment.paypalTransactionStatus ? (
-                            <Badge variant={getPayPalStatusVariant(payment.paypalTransactionStatus)}>
-                              {payment.paypalTransactionStatus}
-                            </Badge>
-                          ) : (
-                            <span className="text-gray-500 dark:text-gray-400 text-sm">N/A</span>
-                          )}
-                        </Table.Cell>
+                        {batchDetails.batch.paymentMethod === "paypal" && (
+                          <Table.Cell>
+                            {payment.paypalTransactionStatus ? (
+                              <Badge variant={getPayPalStatusVariant(payment.paypalTransactionStatus)}>
+                                {payment.paypalTransactionStatus}
+                              </Badge>
+                            ) : (
+                              <span className="text-gray-500 dark:text-gray-400 text-sm">N/A</span>
+                            )}
+                          </Table.Cell>
+                        )}
+                        {batchDetails.batch.paymentMethod === "giftogram" && (
+                          <Table.Cell>
+                            <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                              {payment.giftogramOrderId || "N/A"}
+                            </code>
+                          </Table.Cell>
+                        )}
                         <Table.Cell>
                           <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                            {payment.transactionId || "N/A"}
+                            {payment.transactionId || payment.giftogramOrderId || "N/A"}
                           </code>
                         </Table.Cell>
                       </Table.Row>
@@ -530,18 +612,33 @@ function PaymentHistory() {
               </div>
             </div>
 
-            {/* Sync Button in Modal */}
-            <div className="flex justify-center">
-              <Button
-                variant="primary"
-                icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-5 h-5" />}
-                onClick={() => handleSyncWithPayPal(selectedBatch?.batchId)}
-                disabled={syncing || !selectedBatch?.paypalPayoutBatchId}
-                loading={syncing}
-              >
-                Sync with PayPal
-              </Button>
-            </div>
+            {/* Sync Button in Modal - Show for PayPal and Giftogram batches */}
+            {batchDetails.batch.paymentMethod === "paypal" && (
+              <div className="flex justify-center">
+                <Button
+                  variant="primary"
+                  icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-5 h-5" />}
+                  onClick={() => handleSyncWithPayPal(selectedBatch?.batchId)}
+                  disabled={syncing || !selectedBatch?.paypalPayoutBatchId}
+                  loading={syncing}
+                >
+                  Sync with PayPal
+                </Button>
+              </div>
+            )}
+            {batchDetails.batch.paymentMethod === "giftogram" && (
+              <div className="flex justify-center">
+                <Button
+                  variant="primary"
+                  icon={syncing ? <Spinner size="sm" /> : <ArrowsUpDownIcon className="w-5 h-5" />}
+                  onClick={() => handleSyncWithGiftogram(selectedBatch?.batchId)}
+                  disabled={syncing}
+                  loading={syncing}
+                >
+                  Sync with Giftogram
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex justify-center p-8">

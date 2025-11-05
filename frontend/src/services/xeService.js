@@ -35,8 +35,14 @@ export const getPaymentFields = async (countryCode, currencyCode) => {
 export const parseXeWorkbook = async (formData) => {
   try {
     const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const token = localStorage.getItem("token");
+    const headers = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    // Note: Don't set Content-Type manually when using FormData - axios will set it with boundary
     const axiosResponse = await axios.post(`${baseURL}/xe/parse-template`, formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers,
     });
     return axiosResponse.data;
   } catch (error) {
@@ -101,12 +107,18 @@ export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRe
   try {
     // Use axios directly to bypass the interceptor for blob responses
     const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const token = localStorage.getItem("token");
+    const headers = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
 
     const response = await axios.post(
       `${baseURL}/xe/generate-template`,
       { countryCode, currencyCode, numberOfRecipients },
       {
         responseType: "blob", // Important: specify blob response type
+        headers,
       }
     );
 
@@ -151,7 +163,19 @@ export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRe
 export const generateXeTemplateBulk = async (selections) => {
   try {
     const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-    const response = await axios.post(`${baseURL}/xe/generate-template-bulk`, { selections }, { responseType: "blob" });
+    const token = localStorage.getItem("token");
+    const headers = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await axios.post(
+      `${baseURL}/xe/generate-template-bulk`,
+      { selections },
+      {
+        responseType: "blob",
+        headers,
+      }
+    );
     const contentType = response.headers["content-type"] || "";
     if (contentType.includes("application/json")) {
       const text = await response.data.text();

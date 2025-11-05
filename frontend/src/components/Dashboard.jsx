@@ -101,7 +101,12 @@ function Dashboard() {
       `}
       >
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 dark:border-gray-700">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">BulkPayout</h1>
+          
+          <img
+              src="https://res.cloudinary.com/dzmn9lnk5/image/upload/v1762091880/agile/logos/studieshqwithagilelabs_dt6jbb_c_crop_w_2000_h_700_zfnepb.png"
+              alt="StudiesHQ Logo"
+              className="h-15"
+            />
           <button
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-1 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"

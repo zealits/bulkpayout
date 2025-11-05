@@ -20,10 +20,15 @@ const {
   getAllXeContracts,
 } = require("../controllers/xeController");
 const { createXeRecipients, listXeRecipients, deleteXeRecipient } = require("../controllers/xeRecipientController");
+const { protect, authorize } = require("../middleware/auth");
 const multer = require("multer");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Protect all routes - only admins can access
+router.use(protect);
+router.use(authorize("admin"));
 
 // Test XE API connection
 router.get("/test", testXeConnection);

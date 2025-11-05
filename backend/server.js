@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const path = require("path");
 
 // Import routes
+const authRoutes = require("./routes/authRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const giftogramRoutes = require("./routes/giftogramRoutes");
@@ -40,6 +41,7 @@ mongoose
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 // Routes
+app.use("/api/auth", authRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/giftogram", giftogramRoutes);

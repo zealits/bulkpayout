@@ -7,8 +7,13 @@ const {
   deleteUploadedBatch,
   updateBatch,
 } = require("../controllers/uploadController");
+const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
+
+// Protect all routes - only admins can access
+router.use(protect);
+router.use(authorize("admin"));
 
 // Multer configuration for file uploads
 const storage = multer.memoryStorage();

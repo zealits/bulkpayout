@@ -14,8 +14,11 @@ import {
   DocumentArrowDownIcon,
   UserGroupIcon,
   DocumentTextIcon,
+  ArrowRightOnRectangleIcon,
 } from "@heroicons/react/24/outline";
 import { useTheme } from "../contexts/ThemeContext";
+import { useAuth } from "../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import Button from "./ui/Button";
 import Card from "./ui/Card";
 import Alert from "./ui/Alert";
@@ -46,6 +49,13 @@ function Dashboard() {
   const [selectedComponent, setSelectedComponent] = useState("dashboard");
   const [uploadedData, setUploadedData] = useState(null);
   const { isDark, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   const handleMenuClick = (component) => {
     setSelectedComponent(component);
@@ -158,6 +168,19 @@ function Dashboard() {
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {currentPage?.text || "Dashboard"}
               </h2>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-600 dark:text-gray-400 hidden sm:block">
+                {user?.name || user?.email}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLogout}
+                icon={<ArrowRightOnRectangleIcon className="w-4 h-4" />}
+              >
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
             </div>
           </div>
         </header>

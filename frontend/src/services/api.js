@@ -13,11 +13,11 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    // Add any auth tokens here if needed
-    // const token = localStorage.getItem('token');
-    // if (token) {
-    //   config.headers.Authorization = `Bearer ${token}`;
-    // }
+    // Add auth token to requests
+    const token = localStorage.getItem("token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {
@@ -32,7 +32,16 @@ api.interceptors.response.use(
   },
   (error) => {
     // Handle common errors
-    const message = error.response?.data?.message || error.message || "An error occurred";
+    const message = error.response?.data?.error || error.response?.data?.message || error.message || "An error occurred";
+
+    // Handle 401 unauthorized - redirect to login
+    if (error.response?.status === 401) {
+      localStorage.removeItem("token");
+      // Only redirect if not already on login/register page
+      if (!window.location.pathname.includes("/login") && !window.location.pathname.includes("/register")) {
+        window.location.href = "/login";
+      }
+    }
 
     // Log error for debugging
     console.error("API Error:", {

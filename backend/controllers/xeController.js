@@ -12,16 +12,18 @@ const { successResponse, errorResponse } = require("../utils/responseHelper");
 // Helper function to get environment from request
 function getEnvironmentFromRequest(req) {
   let environment = req.query.environment || req.body.environment || "sandbox";
-  
+
   // Normalize environment (trim whitespace, lowercase)
   environment = String(environment).trim().toLowerCase();
-  
+
   // Validate environment - default to sandbox if invalid
   if (!["production", "sandbox"].includes(environment)) {
-    console.warn(`Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`);
+    console.warn(
+      `Invalid environment value received: "${req.query.environment || req.body.environment}", defaulting to sandbox`
+    );
     environment = "sandbox";
   }
-  
+
   return environment;
 }
 
@@ -537,7 +539,9 @@ const generateXeExcelTemplate = asyncHandler(async (req, res) => {
     // If not in database or expired, fetch from API
     const environment = getEnvironmentFromRequest(req);
     if (!paymentFieldDoc || paymentFieldDoc.isExpired()) {
-      console.log(`Fetching payment fields from XE API for ${countryCode}/${currencyCode} (environment: ${environment})`);
+      console.log(
+        `Fetching payment fields from XE API for ${countryCode}/${currencyCode} (environment: ${environment})`
+      );
       const xeService = getXeService(environment);
       const fieldsResult = await xeService.getPaymentFields(countryCode, currencyCode);
 
@@ -705,7 +709,7 @@ const createXeContract = asyncHandler(async (req, res) => {
 
   try {
     // Find recipient to get client reference (filter by environment)
-    const recipient = await XeRecipient.findOne({ 
+    const recipient = await XeRecipient.findOne({
       "recipientId.xeRecipientId": xeRecipientId,
       environment: env,
     });
@@ -726,7 +730,11 @@ const createXeContract = asyncHandler(async (req, res) => {
     // Get bank account ID from XE service (handles environment-specific variables)
     const bankAccountId = xeService.bankAccountId;
     if (!bankAccountId) {
-      return errorResponse(res, `XE_BANK_ACCOUNT_ID is not configured for ${env} environment. Please set XE_${env.toUpperCase()}_BANK_ACCOUNT_ID or XE_BANK_ACCOUNT_ID in your environment variables.`, 500);
+      return errorResponse(
+        res,
+        `XE_BANK_ACCOUNT_ID is not configured for ${env} environment. Please set XE_${env.toUpperCase()}_BANK_ACCOUNT_ID or XE_BANK_ACCOUNT_ID in your environment variables.`,
+        500
+      );
     }
 
     // Build contract request payload
@@ -1074,7 +1082,7 @@ const getXeContractsByRecipient = asyncHandler(async (req, res) => {
   }
 
   try {
-    const query = { 
+    const query = {
       "recipientId.xeRecipientId": xeRecipientId,
       environment: environment,
     };

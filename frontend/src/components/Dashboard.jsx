@@ -262,6 +262,7 @@ function AccountInfo() {
       setError(null);
       const { getAccountBalance } = await import("../services/paymentService");
       const response = await getAccountBalance();
+      console.log(response.data);
       setAccountData(response.data);
     } catch (err) {
       console.error("Error fetching account balance:", err);

@@ -5,6 +5,7 @@ const {
   getPaymentsByBatch,
   processPaymentBatch,
   getPaymentStats,
+  getDashboardStats,
   updateBatchPaymentMethod,
   updatePaymentStatus,
   syncWithPayPal,
@@ -31,6 +32,7 @@ router.put("/:paymentId/status", updatePaymentStatus);
 
 // Statistics routes
 router.get("/stats", getPaymentStats);
+router.get("/dashboard-stats", getDashboardStats);
 
 // Account routes
 router.get("/account/balance", getAccountBalance);

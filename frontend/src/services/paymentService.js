@@ -66,6 +66,16 @@ export const getPaymentStats = async (batchId = null, period = null) => {
   }
 };
 
+// Get dashboard statistics
+export const getDashboardStats = async () => {
+  try {
+    const response = await api.get("/payments/dashboard-stats");
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Update payment status
 export const updatePaymentStatus = async (paymentId, status, errorMessage = null) => {
   try {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   HomeIcon,
   CreditCardIcon,
@@ -15,6 +15,8 @@ import {
   UserGroupIcon,
   DocumentTextIcon,
   ArrowRightOnRectangleIcon,
+  BuildingLibraryIcon,
+  GiftIcon,
 } from "@heroicons/react/24/outline";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -31,6 +33,7 @@ import XeTemplateDownload from "./XeTemplateDownload";
 import XeExcelExtractor from "./XeExcelExtractor";
 import XeRecipients from "./XeRecipients";
 import XeContracts from "./XeContracts";
+import { getDashboardStats } from "../services/paymentService";
 
 const menuItems = [
   { text: "Dashboard", icon: HomeIcon, component: "dashboard" },
@@ -196,76 +199,178 @@ function Dashboard() {
 
 // Dashboard Home Component
 function DashboardHome({ uploadedData }) {
+  const [dashboardStats, setDashboardStats] = useState({
+    xe: { contracts: 0, payments: 0, totalAmount: 0 },
+    paypal: { payments: 0, totalAmount: 0 },
+    giftogram: { giftCards: 0, totalAmount: 0 },
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await getDashboardStats();
+        if (response.data) {
+          setDashboardStats(response.data);
+        }
+      } catch (err) {
+        console.error("Error fetching dashboard stats:", err);
+        setError(err.message || "Failed to load dashboard statistics");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardStats();
+  }, []);
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount || 0);
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome to BulkPayout Dashboard</h1>
+          <p className="mt-2 text-gray-600 dark:text-gray-400">
+            Manage your bulk payments efficiently with multiple payment methods
+          </p>
+        </div>
+        <div className="flex items-center justify-center py-12">
+          <Spinner size="lg" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome to BulkPayout Dashboard</h1>
         <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Manage your bulk payments efficiently with PayPal integration
+          Manage your bulk payments efficiently with multiple payment methods
         </p>
       </div>
 
+      {error && (
+        <Alert variant="warning" title="Error loading statistics">
+          {error}
+        </Alert>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* XE Bank Transfer Stats */}
+        <Card className="p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <BuildingLibraryIcon className="w-8 h-8 text-blue-600" />
+            </div>
+            <div className="ml-4 flex-1">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">XE Bank Transfers</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {dashboardStats.xe.contracts + dashboardStats.xe.payments}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {dashboardStats.xe.contracts} contracts, {dashboardStats.xe.payments} payments
+              </p>
+              <p className="text-sm font-semibold text-blue-600 mt-1">
+                {formatCurrency(dashboardStats.xe.totalAmount)}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        {/* PayPal Stats */}
         <Card className="p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <CreditCardIcon className="w-8 h-8 text-primary-600" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Payments</p>
+            <div className="ml-4 flex-1">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">PayPal Payments</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {uploadedData ? uploadedData.length : 0}
+                {dashboardStats.paypal.payments}
               </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">payments ready to process</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">completed payments</p>
+              <p className="text-sm font-semibold text-green-600 mt-1">
+                {formatCurrency(dashboardStats.paypal.totalAmount)}
+              </p>
             </div>
           </div>
         </Card>
 
+        {/* Giftogram Stats */}
         <Card className="p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <BanknotesIcon className="w-8 h-8 text-green-600" />
+              <GiftIcon className="w-8 h-8 text-purple-600" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Amount</p>
-              <p className="text-2xl font-bold text-green-600">
-                $
-                {uploadedData
-                  ? uploadedData.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0).toFixed(2)
-                  : "0.00"}
+            <div className="ml-4 flex-1">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Gift Cards Sent</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {dashboardStats.giftogram.giftCards}
               </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">total payout amount</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <CheckCircleIcon className="w-8 h-8 text-blue-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</p>
-              <p className="text-2xl font-bold text-blue-600">{uploadedData ? "Ready" : "No Data"}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {uploadedData ? "Ready to process payments" : "Upload Excel file to start"}
+              <p className="text-sm text-gray-500 dark:text-gray-400">gift cards delivered</p>
+              <p className="text-sm font-semibold text-purple-600 mt-1">
+                {formatCurrency(dashboardStats.giftogram.totalAmount)}
               </p>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Get Started Card */}
-      {!uploadedData && (
-        <Card className="p-8 text-center">
-          <ArrowUpTrayIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Get Started</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            Upload an Excel file with payment details to begin processing bulk payouts
-          </p>
-        </Card>
-      )}
+      {/* Summary Card */}
+      <Card className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Total Summary</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Combined statistics across all payment methods
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Total Payments</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white">
+              {dashboardStats.xe.contracts +
+                dashboardStats.xe.payments +
+                dashboardStats.paypal.payments +
+                dashboardStats.giftogram.giftCards}
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total Amount</p>
+            <p className="text-2xl font-bold text-green-600">
+              {formatCurrency(
+                dashboardStats.xe.totalAmount +
+                  dashboardStats.paypal.totalAmount +
+                  dashboardStats.giftogram.totalAmount
+              )}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Get Started Card - Only show if no data */}
+      {dashboardStats.xe.contracts === 0 &&
+        dashboardStats.xe.payments === 0 &&
+        dashboardStats.paypal.payments === 0 &&
+        dashboardStats.giftogram.giftCards === 0 && (
+          <Card className="p-8 text-center">
+            <ArrowUpTrayIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Get Started</h3>
+            <p className="text-gray-600 dark:text-gray-400">
+              Upload an Excel file with payment details to begin processing bulk payouts
+            </p>
+          </Card>
+        )}
     </div>
   );
 }

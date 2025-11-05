@@ -1,6 +1,7 @@
 const asyncHandler = require("../middleware/asyncHandler");
 const Payment = require("../models/Payment");
 const PaymentBatch = require("../models/PaymentBatch");
+const XeContract = require("../models/XeContract");
 const paypalConfig = require("../config/paypal");
 const { successResponse, errorResponse, paginatedResponse } = require("../utils/responseHelper");
 const { formatPayPalErrorResponse, createUserFriendlyMessage } = require("../utils/paypalErrorMapper");
@@ -353,6 +354,108 @@ const getPaymentStats = asyncHandler(async (req, res) => {
   successResponse(res, result, "Payment statistics retrieved successfully");
 });
 
+// @desc    Get dashboard statistics
+// @route   GET /api/payments/dashboard-stats
+// @access  Public
+const getDashboardStats = asyncHandler(async (req, res) => {
+  // Get completed payments grouped by payment method
+  const paymentStats = await Payment.aggregate([
+    {
+      $match: {
+        status: "completed",
+      },
+    },
+    {
+      $group: {
+        _id: "$paymentMethod",
+        count: { $sum: 1 },
+        totalAmount: { $sum: "$amount" },
+      },
+    },
+  ]);
+
+  // Initialize stats object
+  const stats = {
+    xe: {
+      contracts: 0,
+      payments: 0,
+      totalAmount: 0,
+    },
+    paypal: {
+      payments: 0,
+      totalAmount: 0,
+    },
+    giftogram: {
+      giftCards: 0,
+      totalAmount: 0,
+    },
+  };
+
+  // Process payment stats
+  paymentStats.forEach((stat) => {
+    if (stat._id === "xe_bank_transfer") {
+      stats.xe.payments = stat.count;
+      stats.xe.totalAmount = stat.totalAmount;
+    } else if (stat._id === "paypal") {
+      stats.paypal.payments = stat.count;
+      stats.paypal.totalAmount = stat.totalAmount;
+    } else if (stat._id === "giftogram") {
+      stats.giftogram.giftCards = stat.count;
+      stats.giftogram.totalAmount = stat.totalAmount;
+    }
+  });
+
+  // Get XE contracts statistics (settled contracts)
+  const xeContracts = await XeContract.aggregate([
+    {
+      $match: {
+        settlementStatus: { $in: ["Settled", "PartiallySettled"] },
+      },
+    },
+    {
+      $project: {
+        contractNumber: "$identifier.contractNumber",
+        settlementAmount: {
+          $cond: {
+            if: { $and: [{ $isArray: "$summary" }, { $gt: [{ $size: "$summary" }, 0] }] },
+            then: {
+              $sum: {
+                $map: {
+                  input: "$summary",
+                  as: "summaryItem",
+                  in: { $ifNull: ["$$summaryItem.settlementAmount.amount", 0] },
+                },
+              },
+            },
+            else: 0,
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        count: { $sum: 1 },
+        totalAmount: { $sum: "$settlementAmount" },
+      },
+    },
+  ]);
+
+  if (xeContracts.length > 0 && xeContracts[0].count > 0) {
+    stats.xe.contracts = xeContracts[0].count;
+    // Use contract amounts if payments amount is 0 or add to it
+    if (stats.xe.totalAmount === 0) {
+      stats.xe.totalAmount = xeContracts[0].totalAmount || 0;
+    } else {
+      // If we have both payments and contracts, use the higher amount or combine logic
+      // For now, prefer payments amount as it's more accurate
+      stats.xe.totalAmount = Math.max(stats.xe.totalAmount, xeContracts[0].totalAmount || 0);
+    }
+  }
+
+  successResponse(res, stats, "Dashboard statistics retrieved successfully");
+});
+
 // @desc    Update batch payment method
 // @route   PUT /api/payments/batches/:batchId/payment-method
 // @access  Public
@@ -674,6 +777,7 @@ module.exports = {
   getPaymentsByBatch,
   processPaymentBatch,
   getPaymentStats,
+  getDashboardStats,
   updateBatchPaymentMethod,
   updatePaymentStatus,
   syncWithPayPal,

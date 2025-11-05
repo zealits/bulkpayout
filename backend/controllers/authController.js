@@ -65,6 +65,7 @@ exports.register = asyncHandler(async (req, res) => {
 exports.login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
+  console.log(email, password);
   // Validation
   if (!email || !password) {
     return res.status(400).json({
@@ -75,6 +76,7 @@ exports.login = asyncHandler(async (req, res) => {
 
   // Check for user and include password field
   const user = await User.findOne({ email }).select("+password");
+  console.log(user);
 
   if (!user || !(await user.matchPassword(password))) {
     return res.status(401).json({

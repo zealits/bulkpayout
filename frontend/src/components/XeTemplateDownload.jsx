@@ -309,7 +309,18 @@ function XeTemplateDownload() {
             <li>Address Line 2 (max 34 characters)</li>
             <li>Country (2-character ISO code)</li>
             <li>Locality (max 50 characters)</li>
-            <li>Region (max 50 characters)</li>
+            <li>
+              Region (max 50 characters){" "}
+              <span className="text-yellow-600 dark:text-yellow-400 font-medium">⚠️ Important:</span>
+              <ul className="list-circle list-inside ml-6 mt-1 space-y-0.5 text-xs">
+                <li>
+                  <strong>ISO codes required:</strong> US, GB, AU, CN, MX, NZ, CA (e.g., US → CA, not California)
+                </li>
+                <li>
+                  <strong>Full names accepted:</strong> India (e.g., Maharashtra, Karnataka)
+                </li>
+              </ul>
+            </li>
             <li>Postcode (max 20 characters)</li>
           </ul>
           <p className="mt-3">

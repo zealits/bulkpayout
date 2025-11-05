@@ -18,16 +18,16 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     // Add environment parameter from localStorage (set by EnvironmentContext)
     let environment = localStorage.getItem("bulkpayout_environment") || "sandbox";
-    
+
     // Normalize environment (ensure it's valid)
     environment = String(environment).trim().toLowerCase();
     if (!["production", "sandbox"].includes(environment)) {
       environment = "sandbox"; // Default to sandbox if invalid
     }
-    
+
     // Add environment to query params for GET requests
     if (config.method === "get" || config.method === "GET") {
       config.params = config.params || {};
@@ -40,7 +40,7 @@ api.interceptors.request.use(
         config.data.environment = environment;
       }
     }
-    
+
     return config;
   },
   (error) => {
@@ -55,7 +55,8 @@ api.interceptors.response.use(
   },
   (error) => {
     // Handle common errors
-    const message = error.response?.data?.error || error.response?.data?.message || error.message || "An error occurred";
+    const message =
+      error.response?.data?.error || error.response?.data?.message || error.message || "An error occurred";
 
     // Handle 401 unauthorized - redirect to login
     if (error.response?.status === 401) {

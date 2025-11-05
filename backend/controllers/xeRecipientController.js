@@ -341,8 +341,14 @@ module.exports = {
       return errorResponse(res, "xeRecipientId is required", 400);
     }
 
-    // Attempt XE deletion first
-    // Get environment from request or recipient
+    // First, fetch the recipient from our database to get its environment
+    const recipient = await XeRecipient.findOne({ "recipientId.xeRecipientId": xeRecipientId });
+    
+    if (!recipient) {
+      return errorResponse(res, "Recipient not found in database", 404);
+    }
+
+    // Get environment from recipient, request body, query, or default to sandbox
     const environment = recipient?.environment || req.body.environment || req.query.environment || "sandbox";
     const xeService = getXeService(environment);
     const apiResult = await xeService.deleteRecipient(xeRecipientId);

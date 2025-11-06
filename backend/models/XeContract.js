@@ -158,6 +158,17 @@ const xeContractSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+
+    // Bulk contract tracking
+    isBulk: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    recipientCount: {
+      type: Number,
+      default: 1,
+    },
   },
   {
     timestamps: true,

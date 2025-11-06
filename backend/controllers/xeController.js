@@ -682,65 +682,394 @@ const parseXeTemplate = asyncHandler(async (req, res) => {
 
 module.exports.parseXeTemplate = parseXeTemplate;
 
-// @desc    Create XE contract for a recipient
+// @desc    Create XE contract for a recipient or bulk recipients
 // @route   POST /api/xe/contracts
 // @access  Public
 const createXeContract = asyncHandler(async (req, res) => {
-  const { xeRecipientId, amount, buyCurrency, environment } = req.body;
+  const { recipients, xeRecipientId, amount, buyCurrency, environment } = req.body;
 
   // Validate environment, default to sandbox
   const env = environment === "production" ? "production" : "sandbox";
 
-  console.log("📝 Creating XE contract:", {
-    xeRecipientId,
-    amount,
-    buyCurrency,
-    environment: env,
-  });
+  // Check if this is a bulk contract creation (recipients array provided)
+  const isBulk = Array.isArray(recipients) && recipients.length > 0;
 
-  // Validate required fields
-  if (!xeRecipientId || !amount || !buyCurrency) {
-    return errorResponse(res, "xeRecipientId, amount, and buyCurrency are required", 400);
-  }
+  if (isBulk) {
+    // Bulk contract creation
+    console.log("📝 Creating bulk XE contract for", recipients.length, "recipients");
 
-  if (amount <= 0) {
-    return errorResponse(res, "Amount must be greater than 0", 400);
-  }
+    // Validate recipients array
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      return errorResponse(res, "recipients array is required and must not be empty", 400);
+    }
 
-  try {
-    // Find recipient to get client reference (filter by environment)
-    const recipient = await XeRecipient.findOne({
-      "recipientId.xeRecipientId": xeRecipientId,
+    // Validate each recipient has required fields
+    for (const recipient of recipients) {
+      if (!recipient.xeRecipientId || !recipient.amount || !recipient.buyCurrency) {
+        return errorResponse(res, "Each recipient must have xeRecipientId, amount, and buyCurrency", 400);
+      }
+      if (recipient.amount <= 0) {
+        return errorResponse(res, "All amounts must be greater than 0", 400);
+      }
+    }
+
+    try {
+      // Get XE service instance
+      const environment = getEnvironmentFromRequest(req);
+      const xeService = getXeService(environment);
+
+      // Get bank account ID from XE service
+      const bankAccountId = xeService.bankAccountId;
+      if (!bankAccountId) {
+        return errorResponse(
+          res,
+          `XE_BANK_ACCOUNT_ID is not configured for ${env} environment. Please set XE_${env.toUpperCase()}_BANK_ACCOUNT_ID or XE_BANK_ACCOUNT_ID in your environment variables.`,
+          500
+        );
+      }
+
+      // Fetch all recipients from database
+      const recipientIds = recipients.map((r) => r.xeRecipientId);
+      const dbRecipients = await XeRecipient.find({
+        "recipientId.xeRecipientId": { $in: recipientIds },
+        environment: env,
+      });
+
+      if (dbRecipients.length !== recipients.length) {
+        return errorResponse(res, "One or more recipients not found", 404);
+      }
+
+      // Create a map for quick lookup
+      const recipientMap = new Map();
+      dbRecipients.forEach((r) => {
+        recipientMap.set(r.recipientId.xeRecipientId, r);
+      });
+
+      // Build payments array for bulk contract
+      const payments = recipients.map((recipient) => {
+        const dbRecipient = recipientMap.get(recipient.xeRecipientId);
+        if (!dbRecipient) {
+          throw new Error(`Recipient ${recipient.xeRecipientId} not found`);
+        }
+
+        // Generate unique client reference for each payment
+        const clientReference = XeRecipient.generateClientReference("PAY");
+
+        // Determine purpose of payment code
+        const purposeOfPaymentCode = recipient.buyCurrency === "INR" ? "CORP_INR_UTILTY" : "CORP_INVOICE";
+
+        return {
+          clientReference: clientReference,
+          sellAmount: {
+            currency: "USD",
+            amount: parseFloat(recipient.amount),
+          },
+          buyAmount: {
+            currency: recipient.buyCurrency,
+          },
+          purposeOfPaymentCode: purposeOfPaymentCode,
+          recipient: {
+            recipientId: {
+              xeRecipientId: recipient.xeRecipientId,
+              clientReference: dbRecipient.recipientId.clientReference,
+            },
+            type: "Registered",
+          },
+        };
+      });
+
+      // Build contract request payload with multiple payments
+      const contractData = {
+        payments: payments,
+        autoApprove: false,
+        settlementDetails: {
+          settlementMethod: "DirectDebit",
+          bankAccountId: parseInt(bankAccountId, 10),
+        },
+      };
+
+      // Create bulk contract via XE API
+      const result = await xeService.createContract(contractData);
+
+      if (!result.success) {
+        return errorResponse(res, result.error, 400, {
+          message: "Failed to create bulk XE contract",
+          suggestion: "Please check the contract data and try again.",
+          action: "Verify contract data",
+          severity: "error",
+          retryable: true,
+          details: result.details,
+        });
+      }
+
+      // Process quote data to ensure dates are properly parsed
+      let processedQuote = result.data.quote;
+      if (processedQuote) {
+        processedQuote = { ...processedQuote };
+        if (processedQuote.quoteTime) {
+          processedQuote.quoteTime = new Date(processedQuote.quoteTime);
+        }
+        if (processedQuote.expires) {
+          processedQuote.expires = new Date(processedQuote.expires);
+        }
+        if (processedQuote.fxDetails && Array.isArray(processedQuote.fxDetails)) {
+          processedQuote.fxDetails = processedQuote.fxDetails.map((fx) => {
+            const processed = { ...fx };
+            if (processed.valueDate) {
+              processed.valueDate = new Date(processed.valueDate);
+            }
+            return processed;
+          });
+        }
+      }
+
+      // Process summary data to ensure dates are properly parsed
+      let processedSummary = result.data.summary;
+      if (processedSummary && Array.isArray(processedSummary)) {
+        processedSummary = processedSummary.map((s) => {
+          const processed = { ...s };
+          if (processed.settlementDate) {
+            processed.settlementDate = new Date(processed.settlementDate);
+          }
+          if (processed.remainingSettlement?.valueDate) {
+            processed.remainingSettlement = {
+              ...processed.remainingSettlement,
+              valueDate: new Date(processed.remainingSettlement.valueDate),
+            };
+          }
+          return processed;
+        });
+      }
+
+      // Store bulk contract in database
+      // For bulk contracts, we'll store the first recipient's info and add a recipients array
+      const firstRecipient = dbRecipients[0];
+      const recipientName =
+        firstRecipient?.entity?.company?.name ||
+        [firstRecipient?.entity?.consumer?.givenNames, firstRecipient?.entity?.consumer?.familyName]
+          .filter(Boolean)
+          .join(" ") ||
+        undefined;
+
+      const contract = new XeContract({
+        identifier: result.data.identifier,
+        recipientId: {
+          xeRecipientId: firstRecipient.recipientId.xeRecipientId,
+          clientReference: firstRecipient.recipientId.clientReference,
+        },
+        recipientName: recipientName,
+        batchId: firstRecipient?.batchId,
+        createdDate: result.data.createdDate ? new Date(result.data.createdDate) : new Date(),
+        status: result.data.status,
+        quote: processedQuote,
+        settlementOptions: result.data.settlementOptions,
+        deliveryMethod: result.data.deliveryMethod,
+        summary: processedSummary,
+        settlementStatus: result.data.settlementStatus,
+        quoteStatus: result.data.quoteStatus,
+        contractType: result.data.contractType,
+        paymentRequest: {
+          // Store first payment as reference, but note this is a bulk contract
+          clientReference: payments[0].clientReference,
+          sellAmount: {
+            currency: "USD",
+            amount: payments.reduce((sum, p) => sum + p.sellAmount.amount, 0),
+          },
+          buyAmount: {
+            currency: payments[0].buyAmount.currency,
+          },
+          purposeOfPaymentCode: payments[0].purposeOfPaymentCode,
+        },
+        environment: env,
+        isBulk: true,
+        recipientCount: recipients.length,
+      });
+
+      await contract.save();
+
+      // Return contract with full details including all recipients info
+      const contractResponse = contract.toObject();
+      contractResponse.recipients = recipients.map((r, idx) => {
+        const dbRec = recipientMap.get(r.xeRecipientId);
+        return {
+          xeRecipientId: r.xeRecipientId,
+          clientReference: dbRec?.recipientId?.clientReference,
+          amount: r.amount,
+          buyCurrency: r.buyCurrency,
+          name:
+            dbRec?.entity?.company?.name ||
+            [dbRec?.entity?.consumer?.givenNames, dbRec?.entity?.consumer?.familyName].filter(Boolean).join(" ") ||
+            undefined,
+        };
+      });
+
+      successResponse(res, contractResponse, "Bulk XE contract created successfully");
+    } catch (error) {
+      console.error("Error in createXeContract (bulk):", error);
+      return errorResponse(res, "Failed to create bulk contract", 500, {
+        message: "An unexpected error occurred while creating the bulk contract.",
+        suggestion: "Please try again. If the issue persists, contact support.",
+        action: "Retry operation",
+        severity: "error",
+        retryable: true,
+        details: { originalError: error.message },
+      });
+    }
+  } else {
+    // Single contract creation (existing logic)
+    console.log("📝 Creating XE contract:", {
+      xeRecipientId,
+      amount,
+      buyCurrency,
       environment: env,
     });
-    if (!recipient) {
-      return errorResponse(res, "Recipient not found", 404);
+
+    // Validate required fields
+    if (!xeRecipientId || !amount || !buyCurrency) {
+      return errorResponse(res, "xeRecipientId, amount, and buyCurrency are required", 400);
     }
 
-    // Generate unique client reference for the contract payment
-    const clientReference = XeRecipient.generateClientReference("PAY");
-
-    // Determine purpose of payment code
-    const purposeOfPaymentCode = buyCurrency === "INR" ? "CORP_INR_UTILTY" : "CORP_INVOICE";
-
-    // Get XE service instance to access environment-specific configuration
-    const environment = getEnvironmentFromRequest(req);
-    const xeService = getXeService(environment);
-
-    // Get bank account ID from XE service (handles environment-specific variables)
-    const bankAccountId = xeService.bankAccountId;
-    if (!bankAccountId) {
-      return errorResponse(
-        res,
-        `XE_BANK_ACCOUNT_ID is not configured for ${env} environment. Please set XE_${env.toUpperCase()}_BANK_ACCOUNT_ID or XE_BANK_ACCOUNT_ID in your environment variables.`,
-        500
-      );
+    if (amount <= 0) {
+      return errorResponse(res, "Amount must be greater than 0", 400);
     }
 
-    // Build contract request payload
-    const contractData = {
-      payments: [
-        {
+    try {
+      // Find recipient to get client reference (filter by environment)
+      const recipient = await XeRecipient.findOne({
+        "recipientId.xeRecipientId": xeRecipientId,
+        environment: env,
+      });
+      if (!recipient) {
+        return errorResponse(res, "Recipient not found", 404);
+      }
+
+      // Generate unique client reference for the contract payment
+      const clientReference = XeRecipient.generateClientReference("PAY");
+
+      // Determine purpose of payment code
+      const purposeOfPaymentCode = buyCurrency === "INR" ? "CORP_INR_UTILTY" : "CORP_INVOICE";
+
+      // Get XE service instance to access environment-specific configuration
+      const environment = getEnvironmentFromRequest(req);
+      const xeService = getXeService(environment);
+
+      // Get bank account ID from XE service (handles environment-specific variables)
+      const bankAccountId = xeService.bankAccountId;
+      if (!bankAccountId) {
+        return errorResponse(
+          res,
+          `XE_BANK_ACCOUNT_ID is not configured for ${env} environment. Please set XE_${env.toUpperCase()}_BANK_ACCOUNT_ID or XE_BANK_ACCOUNT_ID in your environment variables.`,
+          500
+        );
+      }
+
+      // Build contract request payload
+      const contractData = {
+        payments: [
+          {
+            clientReference: clientReference,
+            sellAmount: {
+              currency: "USD",
+              amount: parseFloat(amount),
+            },
+            buyAmount: {
+              currency: buyCurrency,
+            },
+            purposeOfPaymentCode: purposeOfPaymentCode,
+            recipient: {
+              recipientId: {
+                xeRecipientId: xeRecipientId,
+                clientReference: recipient.recipientId.clientReference,
+              },
+              type: "Registered",
+            },
+          },
+        ],
+        autoApprove: false,
+        settlementDetails: {
+          settlementMethod: "DirectDebit",
+          bankAccountId: parseInt(bankAccountId, 10),
+        },
+      };
+
+      // Create contract via XE API
+      const result = await xeService.createContract(contractData);
+
+      if (!result.success) {
+        return errorResponse(res, result.error, 400, {
+          message: "Failed to create XE contract",
+          suggestion: "Please check the contract data and try again.",
+          action: "Verify contract data",
+          severity: "error",
+          retryable: true,
+          details: result.details,
+        });
+      }
+
+      // Process quote data to ensure dates are properly parsed
+      let processedQuote = result.data.quote;
+      if (processedQuote) {
+        processedQuote = { ...processedQuote };
+        if (processedQuote.quoteTime) {
+          processedQuote.quoteTime = new Date(processedQuote.quoteTime);
+        }
+        if (processedQuote.expires) {
+          processedQuote.expires = new Date(processedQuote.expires);
+        }
+        if (processedQuote.fxDetails && Array.isArray(processedQuote.fxDetails)) {
+          processedQuote.fxDetails = processedQuote.fxDetails.map((fx) => {
+            const processed = { ...fx };
+            if (processed.valueDate) {
+              processed.valueDate = new Date(processed.valueDate);
+            }
+            return processed;
+          });
+        }
+      }
+
+      // Process summary data to ensure dates are properly parsed
+      let processedSummary = result.data.summary;
+      if (processedSummary && Array.isArray(processedSummary)) {
+        processedSummary = processedSummary.map((s) => {
+          const processed = { ...s };
+          if (processed.settlementDate) {
+            processed.settlementDate = new Date(processed.settlementDate);
+          }
+          if (processed.remainingSettlement?.valueDate) {
+            processed.remainingSettlement = {
+              ...processed.remainingSettlement,
+              valueDate: new Date(processed.remainingSettlement.valueDate),
+            };
+          }
+          return processed;
+        });
+      }
+
+      // Build recipient display name and preserve batch for grouping
+      const recipientName =
+        recipient?.entity?.company?.name ||
+        [recipient?.entity?.consumer?.givenNames, recipient?.entity?.consumer?.familyName].filter(Boolean).join(" ") ||
+        undefined;
+
+      // Store contract in database
+      const contract = new XeContract({
+        identifier: result.data.identifier,
+        recipientId: {
+          xeRecipientId: xeRecipientId,
+          clientReference: recipient.recipientId.clientReference,
+        },
+        recipientName: recipientName,
+        batchId: recipient?.batchId,
+        createdDate: result.data.createdDate ? new Date(result.data.createdDate) : new Date(),
+        status: result.data.status,
+        quote: processedQuote,
+        settlementOptions: result.data.settlementOptions,
+        deliveryMethod: result.data.deliveryMethod,
+        summary: processedSummary,
+        settlementStatus: result.data.settlementStatus,
+        quoteStatus: result.data.quoteStatus,
+        contractType: result.data.contractType,
+        paymentRequest: {
           clientReference: clientReference,
           sellAmount: {
             currency: "USD",
@@ -750,126 +1079,24 @@ const createXeContract = asyncHandler(async (req, res) => {
             currency: buyCurrency,
           },
           purposeOfPaymentCode: purposeOfPaymentCode,
-          recipient: {
-            recipientId: {
-              xeRecipientId: xeRecipientId,
-              clientReference: recipient.recipientId.clientReference,
-            },
-            type: "Registered",
-          },
         },
-      ],
-      autoApprove: false,
-      settlementDetails: {
-        settlementMethod: "DirectDebit",
-        bankAccountId: parseInt(bankAccountId, 10),
-      },
-    };
+        environment: env,
+      });
 
-    // Create contract via XE API
-    const result = await xeService.createContract(contractData);
+      await contract.save();
 
-    if (!result.success) {
-      return errorResponse(res, result.error, 400, {
-        message: "Failed to create XE contract",
-        suggestion: "Please check the contract data and try again.",
-        action: "Verify contract data",
+      successResponse(res, contract.toObject(), "XE contract created successfully");
+    } catch (error) {
+      console.error("Error in createXeContract:", error);
+      return errorResponse(res, "Failed to create contract", 500, {
+        message: "An unexpected error occurred while creating the contract.",
+        suggestion: "Please try again. If the issue persists, contact support.",
+        action: "Retry operation",
         severity: "error",
         retryable: true,
-        details: result.details,
+        details: { originalError: error.message },
       });
     }
-
-    // Process quote data to ensure dates are properly parsed
-    let processedQuote = result.data.quote;
-    if (processedQuote) {
-      processedQuote = { ...processedQuote };
-      if (processedQuote.quoteTime) {
-        processedQuote.quoteTime = new Date(processedQuote.quoteTime);
-      }
-      if (processedQuote.expires) {
-        processedQuote.expires = new Date(processedQuote.expires);
-      }
-      if (processedQuote.fxDetails && Array.isArray(processedQuote.fxDetails)) {
-        processedQuote.fxDetails = processedQuote.fxDetails.map((fx) => {
-          const processed = { ...fx };
-          if (processed.valueDate) {
-            processed.valueDate = new Date(processed.valueDate);
-          }
-          return processed;
-        });
-      }
-    }
-
-    // Process summary data to ensure dates are properly parsed
-    let processedSummary = result.data.summary;
-    if (processedSummary && Array.isArray(processedSummary)) {
-      processedSummary = processedSummary.map((s) => {
-        const processed = { ...s };
-        if (processed.settlementDate) {
-          processed.settlementDate = new Date(processed.settlementDate);
-        }
-        if (processed.remainingSettlement?.valueDate) {
-          processed.remainingSettlement = {
-            ...processed.remainingSettlement,
-            valueDate: new Date(processed.remainingSettlement.valueDate),
-          };
-        }
-        return processed;
-      });
-    }
-
-    // Build recipient display name and preserve batch for grouping
-    const recipientName =
-      recipient?.entity?.company?.name ||
-      [recipient?.entity?.consumer?.givenNames, recipient?.entity?.consumer?.familyName].filter(Boolean).join(" ") ||
-      undefined;
-
-    // Store contract in database
-    const contract = new XeContract({
-      identifier: result.data.identifier,
-      recipientId: {
-        xeRecipientId: xeRecipientId,
-        clientReference: recipient.recipientId.clientReference,
-      },
-      recipientName: recipientName,
-      batchId: recipient?.batchId,
-      createdDate: result.data.createdDate ? new Date(result.data.createdDate) : new Date(),
-      status: result.data.status,
-      quote: processedQuote,
-      settlementOptions: result.data.settlementOptions,
-      deliveryMethod: result.data.deliveryMethod,
-      summary: processedSummary,
-      settlementStatus: result.data.settlementStatus,
-      quoteStatus: result.data.quoteStatus,
-      contractType: result.data.contractType,
-      paymentRequest: {
-        clientReference: clientReference,
-        sellAmount: {
-          currency: "USD",
-          amount: parseFloat(amount),
-        },
-        buyAmount: {
-          currency: buyCurrency,
-        },
-        purposeOfPaymentCode: purposeOfPaymentCode,
-      },
-      environment: env,
-    });
-
-    await contract.save();
-
-    successResponse(res, contract.toObject(), "XE contract created successfully");
-  } catch (error) {
-    console.error("Error in createXeContract:", error);
-    return errorResponse(res, "Failed to create contract", 500, {
-      message: "An unexpected error occurred while creating the contract.",
-      suggestion: "Please try again. If the issue persists, contact support.",
-      action: "Retry operation",
-      severity: "error",
-      retryable: true,
-      details: { originalError: error.message },
-    });
   }
 });
 

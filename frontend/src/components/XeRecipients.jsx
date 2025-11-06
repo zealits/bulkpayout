@@ -11,7 +11,231 @@ import { ArrowPathIcon, MagnifyingGlassIcon, ExclamationTriangleIcon } from "@he
 import Modal from "./ui/Modal";
 import Button from "./ui/Button";
 
-// Bulk Contracts Table Component
+// Bulk Contract Details View Component
+function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    if (!contract?.quote?.expires) {
+      setSecondsLeft(0);
+      return;
+    }
+
+    const calculateTimeLeft = () => {
+      try {
+        const expires = contract.quote.expires instanceof Date ? contract.quote.expires : new Date(contract.quote.expires);
+        const now = new Date();
+        return Math.max(0, Math.floor((expires - now) / 1000));
+      } catch {
+        return 0;
+      }
+    };
+
+    setSecondsLeft(calculateTimeLeft());
+    const interval = setInterval(() => {
+      setSecondsLeft(calculateTimeLeft());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [contract]);
+
+  const formatTime = (seconds) => {
+    if (seconds <= 0) return "Expired";
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  if (!contract) {
+    return <div className="text-sm text-gray-500 dark:text-gray-400">No contract data available</div>;
+  }
+
+  const contractNumber = contract.identifier?.contractNumber;
+  const isExpired = secondsLeft <= 0;
+  const isApproved = contract.status === "Approved" || contract.status === "ContractConfirmed";
+  const canApprove = !isExpired && !isApproved;
+
+  // Calculate totals from summary
+  const summary = contract.summary?.[0];
+  const settlementFees = summary?.settlementFees;
+  const settlementAmount = summary?.settlementAmount;
+  const totalSellAmount = contract.paymentRequest?.sellAmount?.amount || 0;
+
+  // Get all FX details for different currencies
+  const fxDetails = contract.quote?.fxDetails || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Contract Header */}
+      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Contract Number:</span>
+          <span className="text-sm font-mono text-gray-900 dark:text-gray-100">{contractNumber || "-"}</span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</span>
+          <span
+            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+              isApproved
+                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                : isExpired
+                ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+            }`}
+          >
+            {contract.status || "Unknown"}
+          </span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Recipients:</span>
+          <span className="text-sm text-gray-900 dark:text-gray-100">{contract.recipientCount || contract.recipients?.length || 1}</span>
+        </div>
+      </div>
+
+      {/* Exchange Rates */}
+      {fxDetails.length > 0 && (
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 rounded-lg p-6 space-y-4 border border-blue-200 dark:border-blue-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Exchange Rates</h3>
+          <div className="space-y-3">
+            {fxDetails.map((fx, idx) => {
+              const rate = fx.rate?.rate || 0;
+              const sellAmount = fx.sell?.amount || 0;
+              const sellCurrency = fx.sell?.currency || "USD";
+              const buyCurrency = fx.buy?.currency || "";
+              const buyAmount = fx.buy?.amount || 0;
+              const inverseRate = fx.rate?.inverseRate || 0;
+
+              return (
+                <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Selling:</span>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {sellAmount.toFixed(2)} {sellCurrency}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Buying:</span>
+                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                      {buyAmount.toFixed(2)} {buyCurrency}
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Exchange Rate:</span>
+                      <span className="text-base font-semibold text-blue-700 dark:text-blue-300">
+                        1 {sellCurrency} = {rate > 0 ? rate.toFixed(4) : "N/A"} {buyCurrency}
+                      </span>
+                    </div>
+                    {inverseRate > 0 && (
+                      <div className="flex justify-between items-center text-xs text-gray-600 dark:text-gray-400 mt-1">
+                        <span>Inverse Rate:</span>
+                        <span className="font-medium">
+                          1 {buyCurrency} = {inverseRate.toFixed(4)} {sellCurrency}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Settlement Information */}
+      {summary && (
+        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-3">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Settlement Details</h3>
+          <div className="space-y-2">
+            {settlementFees && (
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Settlement Fees:</span>
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {settlementFees.amount?.toFixed(2) || "0.00"} {settlementFees.currency || "USD"}
+                </span>
+              </div>
+            )}
+            {settlementAmount && (
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Settlement Amount:</span>
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {settlementAmount.amount?.toFixed(2) || "0.00"} {settlementAmount.currency || "USD"}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Selling Amount:</span>
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {totalSellAmount.toFixed(2)} USD
+              </span>
+            </div>
+            {summary.settlementMethod && (
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Settlement Method:</span>
+                <span className="text-sm text-gray-900 dark:text-gray-100">{summary.settlementMethod}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recipients List */}
+      {contract.recipients && contract.recipients.length > 0 && (
+        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-3">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recipients ({contract.recipients.length})</h3>
+          <div className="max-h-60 overflow-auto space-y-2">
+            {contract.recipients.map((recipient, idx) => (
+              <div key={idx} className="bg-white dark:bg-gray-800 rounded p-3 text-sm">
+                <div className="font-medium text-gray-900 dark:text-gray-100">{recipient.name || "Unknown"}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Amount: {recipient.amount?.toFixed(2) || "0.00"} USD → {recipient.buyCurrency || ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Countdown Timer */}
+      <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Remaining:</span>
+          <span
+            className={`text-2xl font-mono font-bold ${
+              isExpired
+                ? "text-red-600 dark:text-red-400"
+                : secondsLeft < 60
+                ? "text-orange-600 dark:text-orange-400"
+                : "text-gray-900 dark:text-gray-100"
+            }`}
+          >
+            {formatTime(secondsLeft)}
+          </span>
+        </div>
+        {isExpired && (
+          <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+            This quote has expired. Please create a new contract.
+          </p>
+        )}
+      </div>
+
+      {/* Approve Button */}
+      <div className="flex justify-end">
+        <Button
+          variant="primary"
+          onClick={() => onApprove([contractNumber])}
+          disabled={!canApprove || bulkApproving}
+          loading={bulkApproving}
+          size="lg"
+        >
+          Approve Contract
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Bulk Contracts Table Component (for backward compatibility with individual contracts)
 function BulkContractsTable({ contracts, onApproveSelected, bulkApproving }) {
   const [selectedContracts, setSelectedContracts] = useState(new Set());
   const [contractTimers, setContractTimers] = useState({});
@@ -657,63 +881,55 @@ export default function XeRecipients() {
     setBulkCreating(true);
     setError("");
     setBulkAmountModal({ open: false, amount: "" });
-    const contracts = [];
-    const errors = [];
 
     // Get selected recipient details
     const recipientsToProcess = items.filter((r) => selectedRecipients.has(r._id));
 
-    // Create contracts for all selected recipients using their individual amounts
-    for (const recipient of recipientsToProcess) {
-      if (!recipient?.recipientId?.xeRecipientId) continue;
-
-      // Use the recipient's individual amount
-      const amount = recipient.amount;
-      if (!amount || amount <= 0) {
-        errors.push({
-          recipient: recipient,
-          error: "Recipient does not have a valid amount (USD)",
-        });
-        continue;
-      }
-
-      try {
-        const response = await createXeContract({
-          xeRecipientId: recipient.recipientId.xeRecipientId,
-          amount: amount,
-          buyCurrency: recipient.currency || "INR",
-        });
-
-        const contract = response?.data;
-        if (contract) {
-          contracts.push({
-            ...contract,
-            recipient: recipient,
-            recipientId: recipient._id,
-          });
-        } else {
-          errors.push({
-            recipient: recipient,
-            error: "No contract data received",
-          });
-        }
-      } catch (err) {
-        errors.push({
-          recipient: recipient,
-          error: err.response?.data?.message || err.message || "Failed to create contract",
-        });
-      }
+    // Validate all recipients have amounts
+    const recipientsWithoutAmounts = recipientsToProcess.filter((r) => !r.amount || r.amount <= 0);
+    if (recipientsWithoutAmounts.length > 0) {
+      setError(
+        `Some recipients don't have amounts set. Please ensure all selected recipients have an amount (USD) before creating contracts.`
+      );
+      setBulkCreating(false);
+      return;
     }
 
-    setBulkContracts(contracts);
-    setShowBulkContracts(true);
-    setSelectedRecipients(new Set());
-    setBulkCreating(false);
+    try {
+      // Prepare recipients array for bulk contract creation
+      const recipientsData = recipientsToProcess
+        .filter((r) => r?.recipientId?.xeRecipientId)
+        .map((r) => ({
+          xeRecipientId: r.recipientId.xeRecipientId,
+          amount: r.amount,
+          buyCurrency: r.currency || "INR",
+        }));
 
-    if (errors.length > 0) {
-      setError(`${errors.length} contract(s) failed to create. ${contracts.length} contract(s) created successfully.`);
-    } else {
-      setError("");
+      if (recipientsData.length === 0) {
+        setError("No valid recipients found");
+        setBulkCreating(false);
+        return;
+      }
+
+      // Create single bulk contract with all recipients
+      const response = await createXeContract({
+        recipients: recipientsData,
+      });
+
+      const contract = response?.data;
+      if (contract) {
+        // Store the bulk contract
+        setBulkContracts([contract]);
+        setShowBulkContracts(true);
+        setSelectedRecipients(new Set());
+        setError("");
+      } else {
+        setError("Failed to create bulk contract: No contract data received");
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || "Failed to create bulk contract");
+    } finally {
+      setBulkCreating(false);
     }
   };
 
@@ -1109,25 +1325,36 @@ export default function XeRecipients() {
         <Modal
           isOpen={showBulkContracts}
           onClose={() => setShowBulkContracts(false)}
-          title={`Bulk Contracts (${bulkContracts.length})`}
+          title={
+            bulkContracts[0]?.isBulk
+              ? `Bulk Contract - ${bulkContracts[0]?.recipientCount || bulkContracts[0]?.recipients?.length || 0} Recipients`
+              : `Bulk Contracts (${bulkContracts.length})`
+          }
           size="xl"
           footer={
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setShowBulkContracts(false)}>
                 Close
               </Button>
-              <Button variant="primary" onClick={handleApproveAll} loading={bulkApproving} disabled={bulkApproving}>
-                Approve All
-              </Button>
             </div>
           }
         >
           <div className="overflow-auto">
-            <BulkContractsTable
-              contracts={bulkContracts}
-              onApproveSelected={handleApproveSelected}
-              bulkApproving={bulkApproving}
-            />
+            {bulkContracts[0]?.isBulk ? (
+              // Show bulk contract details view
+              <BulkContractDetailsView
+                contract={bulkContracts[0]}
+                onApprove={handleApproveSelected}
+                bulkApproving={bulkApproving}
+              />
+            ) : (
+              // Show table for individual contracts (backward compatibility)
+              <BulkContractsTable
+                contracts={bulkContracts}
+                onApproveSelected={handleApproveSelected}
+                bulkApproving={bulkApproving}
+              />
+            )}
           </div>
         </Modal>
       )}

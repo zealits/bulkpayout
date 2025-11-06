@@ -34,8 +34,8 @@ export const getPaymentFields = async (countryCode, currencyCode) => {
 // Parse uploaded XE workbook (multi-sheet)
 export const parseXeWorkbook = async (formData) => {
   try {
-    // const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    // const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -107,8 +107,8 @@ export const getSupportedCountriesAndCurrencies = async () => {
 export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRecipients }) => {
   try {
     // Use axios directly to bypass the interceptor for blob responses
-    // const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    // const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -164,8 +164,8 @@ export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRe
 // Generate multi-sheet XE Excel template
 export const generateXeTemplateBulk = async (selections) => {
   try {
-    // const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    // const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -212,7 +212,8 @@ export const createXeRecipients = async (
   try {
     if (useSSE && onProgress) {
       // Use Server-Sent Events for progress updates
-      const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+      // const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+      const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
       const token = localStorage.getItem("token");
 
       return new Promise((resolve, reject) => {
@@ -298,7 +299,8 @@ export const createXeRecipients = async (
 // Generate Excel file with error rows highlighted
 export const generateErrorHighlightedExcel = async (sheetRows, results) => {
   try {
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    // const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {

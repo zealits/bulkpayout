@@ -414,6 +414,7 @@ export default function XeRecipients() {
   const [bulkApproving, setBulkApproving] = useState(false);
   const [showBulkContracts, setShowBulkContracts] = useState(false);
   const [bulkAmountModal, setBulkAmountModal] = useState({ open: false, amount: "" });
+  const [showGroupModal, setShowGroupModal] = useState({ open: false });
 
   // Generate a consistent pastel color per batchId
   const colorForBatch = (batchId) => {
@@ -639,18 +640,20 @@ export default function XeRecipients() {
     // Get selected recipient details
     const recipientsToProcess = items.filter((r) => selectedRecipients.has(r._id));
 
-    // Open modal for bulk amount input
-    setBulkAmountModal({ open: true, amount: "", recipientCount: recipientsToProcess.length });
-    setError("");
-  };
-
-  const handleConfirmBulkAmount = async () => {
-    if (!bulkAmountModal.amount || parseFloat(bulkAmountModal.amount) <= 0) {
-      setError("Invalid amount. Please enter a valid USD amount.");
+    // Check if all recipients have amounts
+    const recipientsWithoutAmounts = recipientsToProcess.filter((r) => !r.amount || r.amount <= 0);
+    if (recipientsWithoutAmounts.length > 0) {
+      setError(
+        `Some recipients don't have amounts set. Please ensure all selected recipients have an amount (USD) before creating contracts.`
+      );
       return;
     }
 
-    const amount = parseFloat(bulkAmountModal.amount);
+    // Proceed directly to create contracts with individual amounts
+    handleConfirmBulkAmount();
+  };
+
+  const handleConfirmBulkAmount = async () => {
     setBulkCreating(true);
     setError("");
     setBulkAmountModal({ open: false, amount: "" });
@@ -660,9 +663,19 @@ export default function XeRecipients() {
     // Get selected recipient details
     const recipientsToProcess = items.filter((r) => selectedRecipients.has(r._id));
 
-    // Create contracts for all selected recipients
+    // Create contracts for all selected recipients using their individual amounts
     for (const recipient of recipientsToProcess) {
       if (!recipient?.recipientId?.xeRecipientId) continue;
+
+      // Use the recipient's individual amount
+      const amount = recipient.amount;
+      if (!amount || amount <= 0) {
+        errors.push({
+          recipient: recipient,
+          error: "Recipient does not have a valid amount (USD)",
+        });
+        continue;
+      }
 
       try {
         const response = await createXeContract({
@@ -819,38 +832,17 @@ export default function XeRecipients() {
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900/50">
             <tr>
-              <th className="px-6 py-3 text-left w-12">
-                <input
-                  type="checkbox"
-                  checked={selectedRecipients.size === items.length && items.length > 0}
-                  onChange={handleSelectAll}
-                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800"
-                />
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                Batch
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                Currency
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                Bank Account
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                Created
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                Actions
-              </th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Batch</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Recipients</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Total Amount (USD)</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Created</th>
+              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             {items.length === 0 && !loading && (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center">
+                <td colSpan={5} className="px-6 py-12 text-center">
                   <div className="flex flex-col items-center justify-center">
                     <p className="text-sm text-gray-500 dark:text-gray-400">No recipients found</p>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Try adjusting your search criteria</p>
@@ -858,86 +850,63 @@ export default function XeRecipients() {
                 </td>
               </tr>
             )}
-            {items.map((r) => (
-              <tr
-                key={r._id}
-                className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-150 ${
-                  selectedRecipients.has(r._id) ? "bg-blue-50 dark:bg-blue-900/20" : ""
-                }`}
-              >
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={selectedRecipients.has(r._id)}
-                    onChange={() => handleSelectRecipient(r._id)}
-                    disabled={!r?.recipientId?.xeRecipientId}
-                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {(() => {
-                    const c = colorForBatch(r?.batchId);
-                    return (
-                      <span
-                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${c.bg} ${c.text} ${c.ring}`}
+            {Object.values(
+              items.reduce((acc, r) => {
+                const key = r.batchId || "-";
+                if (!acc[key]) acc[key] = { batchId: key, recipients: [] };
+                acc[key].recipients.push(r);
+                return acc;
+              }, {})
+            ).map((group) => {
+              const c = colorForBatch(group.batchId);
+              const totalAmount = group.recipients.reduce((sum, r) => sum + (r.amount || 0), 0);
+              const createdAt = group.recipients[0]?.createdAt;
+              return (
+                <tr key={group.batchId} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-150">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${c.bg} ${c.text} ${c.ring}`}>
+                      {group.batchId}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                    {group.recipients.length}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {totalAmount > 0 ? `$${totalAmount.toFixed(2)}` : "-"}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {createdAt
+                      ? new Date(createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                      : "-"}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowGroupModal({ open: true, group })}
+                        className="text-xs"
                       >
-                        {r?.batchId || "-"}
-                      </span>
-                    );
-                  })()}
-                </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {r?.entity?.company?.name ||
-                      [r?.entity?.consumer?.givenNames, r?.entity?.consumer?.familyName].filter(Boolean).join(" ") ||
-                      "-"}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                    {r.currency || "-"}
-                  </span>
-                </td>
-                <td className="px-6 py-4">
-                  <div
-                    className="text-sm text-gray-900 dark:text-gray-100 max-w-[200px] truncate"
-                    title={r?.payoutMethod?.bank?.account?.accountName}
-                  >
-                    {r?.payoutMethod?.bank?.account?.accountName || "-"}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {new Date(r.createdAt).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={!r?.recipientId?.xeRecipientId}
-                      onClick={() => handleCreateContractClick(r)}
-                      className="text-xs"
-                    >
-                      Create Contract
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      disabled={!r?.recipientId?.xeRecipientId || deletingId === r?.recipientId?.xeRecipientId}
-                      loading={deletingId === r?.recipientId?.xeRecipientId}
-                      onClick={() => handleDeleteClick(r)}
-                      className="text-xs"
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                        View
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={async () => {
+                          // Select recipients from this group and run bulk create using individual amounts
+                          const ids = new Set(group.recipients.map((r) => r._id));
+                          setSelectedRecipients(ids);
+                          await handleBulkCreateContracts();
+                        }}
+                        className="text-xs"
+                      >
+                        Create Contracts
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1052,7 +1021,40 @@ export default function XeRecipients() {
         </div>
       </Modal>
 
-      {/* Bulk Amount Input Modal */}
+      {/* Group View Modal */}
+      <Modal
+        isOpen={showGroupModal?.open}
+        onClose={() => setShowGroupModal({ open: false })}
+        title={`Batch ${showGroupModal?.group?.batchId || ""} Recipients`}
+        size="lg"
+      >
+        <div className="max-h-[60vh] overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left">
+                <th className="px-4 py-2">Name</th>
+                <th className="px-4 py-2">Currency</th>
+                <th className="px-4 py-2">Amount (USD)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(showGroupModal?.group?.recipients || []).map((r) => (
+                <tr key={r._id} className="border-t border-gray-200 dark:border-gray-700">
+                  <td className="px-4 py-2">
+                    {r?.entity?.company?.name ||
+                      [r?.entity?.consumer?.givenNames, r?.entity?.consumer?.familyName].filter(Boolean).join(" ") ||
+                      "-"}
+                  </td>
+                  <td className="px-4 py-2">{r.currency || "-"}</td>
+                  <td className="px-4 py-2">{r.amount ? `$${r.amount.toFixed(2)}` : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+
+      {/* Bulk Amount Input Modal (retained for validation path but unused when grouped) */}
       <Modal
         isOpen={bulkAmountModal.open}
         onClose={() => setBulkAmountModal({ open: false, amount: "" })}

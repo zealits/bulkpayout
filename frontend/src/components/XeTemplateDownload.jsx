@@ -332,6 +332,12 @@ function XeTemplateDownload() {
             <li>Account Type (required)</li>
             <li>Additional fields based on selected country/currency</li>
           </ul>
+          <p className="mt-3">
+            <strong className="text-gray-900 dark:text-white">Payment Amount:</strong>
+          </p>
+          <ul className="list-disc list-inside ml-4 space-y-1">
+            <li>Amount (USD) - Payment amount in US Dollars only (required)</li>
+          </ul>
         </div>
       </Card>
     </div>

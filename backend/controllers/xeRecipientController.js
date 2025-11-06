@@ -68,6 +68,10 @@ function transformRowToXeRecipient(row, sheetInfo = {}) {
   // Extract currency (from sheet info or row)
   const currency = sheetInfo.inferredCurrency || getValue(["currency"]) || "";
 
+  // Extract amount (USD) - dollars only
+  const amountStr = getValue(["amount (usd)", "amount", "amount_usd", "usd_amount"]);
+  const amount = amountStr ? parseFloat(amountStr) : null;
+
   // Build XE API request body
   const recipientData = {
     payoutMethod: {
@@ -108,6 +112,7 @@ function transformRowToXeRecipient(row, sheetInfo = {}) {
   return {
     recipientData,
     accountNumber,
+    amount,
     extractedData: {
       givenNames,
       familyName,
@@ -130,6 +135,7 @@ function transformRowToXeRecipient(row, sheetInfo = {}) {
         iban,
       },
       currency,
+      amount,
     },
   };
 }
@@ -179,7 +185,7 @@ const createXeRecipients = asyncHandler(async (req, res) => {
         let clientReference = XeRecipient.generateClientReference();
 
         // Transform row to XE format
-        const { recipientData, accountNumber, extractedData } = transformRowToXeRecipient(row, {
+        const { recipientData, accountNumber, amount, extractedData } = transformRowToXeRecipient(row, {
           inferredCountry,
           inferredCurrency,
         });
@@ -208,12 +214,13 @@ const createXeRecipients = asyncHandler(async (req, res) => {
 
         if (apiResult.success && apiResult.statusCode === 200 && apiResult.data) {
           // Persist only the successful response fields
-          // Shape expected by schema: { payoutMethod, entity, recipientId, currency }
+          // Shape expected by schema: { payoutMethod, entity, recipientId, currency, amount }
           const toSave = {
             payoutMethod: apiResult.data.payoutMethod,
             entity: apiResult.data.entity,
             recipientId: apiResult.data.recipientId,
             currency: apiResult.data.currency,
+            amount: amount && !isNaN(amount) && amount > 0 ? amount : undefined,
             batchId: effectiveBatchId,
             environment: env,
           };

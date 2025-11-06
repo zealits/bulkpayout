@@ -14,6 +14,10 @@ const xeContractSchema = new mongoose.Schema(
       clientReference: { type: String, index: true },
     },
 
+    // For faster UI without joins
+    recipientName: { type: String },
+    batchId: { type: String, index: true },
+
     // Contract details
     createdDate: { type: Date, default: Date.now },
     status: {

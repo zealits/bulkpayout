@@ -819,6 +819,12 @@ const createXeContract = asyncHandler(async (req, res) => {
       });
     }
 
+    // Build recipient display name and preserve batch for grouping
+    const recipientName =
+      recipient?.entity?.company?.name ||
+      [recipient?.entity?.consumer?.givenNames, recipient?.entity?.consumer?.familyName].filter(Boolean).join(" ") ||
+      undefined;
+
     // Store contract in database
     const contract = new XeContract({
       identifier: result.data.identifier,
@@ -826,6 +832,8 @@ const createXeContract = asyncHandler(async (req, res) => {
         xeRecipientId: xeRecipientId,
         clientReference: recipient.recipientId.clientReference,
       },
+      recipientName: recipientName,
+      batchId: recipient?.batchId,
       createdDate: result.data.createdDate ? new Date(result.data.createdDate) : new Date(),
       status: result.data.status,
       quote: processedQuote,

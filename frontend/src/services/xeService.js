@@ -34,7 +34,8 @@ export const getPaymentFields = async (countryCode, currencyCode) => {
 // Parse uploaded XE workbook (multi-sheet)
 export const parseXeWorkbook = async (formData) => {
   try {
-    const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    // const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -106,7 +107,8 @@ export const getSupportedCountriesAndCurrencies = async () => {
 export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRecipients }) => {
   try {
     // Use axios directly to bypass the interceptor for blob responses
-    const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    // const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -162,7 +164,8 @@ export const generateXeTemplate = async ({ countryCode, currencyCode, numberOfRe
 // Generate multi-sheet XE Excel template
 export const generateXeTemplateBulk = async (selections) => {
   try {
-    const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    // const baseURL = import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api";
+    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     const token = localStorage.getItem("token");
     const headers = {};
     if (token) {
@@ -291,7 +294,9 @@ export const getXeContractsByRecipient = async (xeRecipientId, { page = 1, limit
     params.set("page", String(page));
     params.set("limit", String(limit));
     const query = params.toString();
-    const response = await api.get(`/xe/recipients/${encodeURIComponent(xeRecipientId)}/contracts${query ? `?${query}` : ""}`);
+    const response = await api.get(
+      `/xe/recipients/${encodeURIComponent(xeRecipientId)}/contracts${query ? `?${query}` : ""}`
+    );
     return response;
   } catch (error) {
     throw error;

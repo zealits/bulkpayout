@@ -82,6 +82,12 @@ const xeRecipientSchema = new mongoose.Schema(
 
     currency: { type: String, maxLength: 3 },
 
+    // Payment amount in USD (dollars only)
+    amount: {
+      type: Number,
+      min: 0.01,
+    },
+
     // Batch identifier for grouping recipients created from a single Excel upload
     batchId: { type: String, index: true },
 

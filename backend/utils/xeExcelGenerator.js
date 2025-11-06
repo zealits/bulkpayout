@@ -48,8 +48,15 @@ function buildXeSheets({ countryCode, currencyCode, numberOfRecipients, paymentF
   // Combine all bank fields
   const allBankFields = [...baseBankFields, ...dynamicBankFields];
 
+  // Add Amount (USD) field - always required, in dollars only
+  const amountField = { name: "amount", label: "Amount (USD)", required: true };
+
   // Create header row (mark ALL columns as required with *)
-  const headers = [...consumerFields.map((f) => `${f.label} *`), ...allBankFields.map((f) => `${f.label} *`)];
+  const headers = [
+    ...consumerFields.map((f) => `${f.label} *`),
+    ...allBankFields.map((f) => `${f.label} *`),
+    `${amountField.label} *`,
+  ];
 
   // Create data rows (empty rows for user to fill)
   const dataRows = [];
@@ -133,6 +140,10 @@ function buildXeSheets({ countryCode, currencyCode, numberOfRecipients, paymentF
       f.pattern ? `Pattern: ${f.pattern}` : "",
     ]),
     [""],
+    ["PAYMENT AMOUNT:"],
+    [""],
+    ["Amount (USD) *REQUIRED", "Payment amount in US Dollars only"],
+    [""],
     ["INSTRUCTIONS:"],
     ["1. Fill in all required fields (marked with *)"],
     ["2. Ensure country codes are 2-character ISO codes (e.g., GB, US, IN)"],
@@ -149,6 +160,7 @@ function buildXeSheets({ countryCode, currencyCode, numberOfRecipients, paymentF
     ["- Locality: City name, max 50 characters"],
     ["- Region: State/Province, max 50 characters"],
     ["- Postcode: Postal code, max 20 characters"],
+    ["- Amount (USD): Payment amount in US Dollars only, required for all recipients"],
     [""],
     ["STATE/REGION VALIDATION - IMPORTANT:"],
     [""],

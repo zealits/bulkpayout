@@ -70,6 +70,17 @@ export default function XeContracts() {
     };
   }, [items]);
 
+  // Group contracts by batchId for overview
+  const groupedContracts = React.useMemo(() => {
+    const groups = items.reduce((acc, c) => {
+      const key = c.batchId || "-";
+      if (!acc[key]) acc[key] = { batchId: key, contracts: [] };
+      acc[key].contracts.push(c);
+      return acc;
+    }, {});
+    return Object.values(groups);
+  }, [items]);
+
   const handleSearch = (e) => {
     e.preventDefault();
     setPage(1);
@@ -219,6 +230,35 @@ export default function XeContracts() {
             </Button>
           </div>
         )}
+      </div>
+
+      {/* Grouped by Batch (Overview) */}
+      <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm mb-6">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-900/50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Batch</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Contracts</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Total Amount (USD)</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+            {groupedContracts.map((g) => {
+              const total = g.contracts.reduce((s, c) => s + (c?.paymentRequest?.sellAmount?.amount || 0), 0);
+              return (
+                <tr key={g.batchId} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">{g.batchId}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{g.contracts.length}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{`$${total.toFixed(2)}`}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                    <Button variant="outline" size="sm" onClick={() => setDetailsModalOpen(false) || setSelectedContractNumber(null) || alert(`Contracts in ${g.batchId}:\n` + g.contracts.map(c => `${c.identifier?.contractNumber} - ${c.recipientName || ''} - $${(c?.paymentRequest?.sellAmount?.amount||0).toFixed(2)}`).join('\n'))}>View</Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       {/* Contracts Table */}

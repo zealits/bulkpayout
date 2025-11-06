@@ -2,9 +2,9 @@ import axios from "axios";
 
 // Create axios instance with base configuration
 const api = axios.create({
-  // baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
-  baseURL: import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api",
-  timeout: 30000, // 30 seconds timeout for file uploads
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
+  // baseURL: import.meta.env.VITE_API_URL || "https://payments.studieshq.com/api",
+  timeout: 500000, // 30 seconds timeout for file uploads
   headers: {
     "Content-Type": "application/json",
   },

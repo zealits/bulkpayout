@@ -632,12 +632,10 @@ export default function XeRecipients() {
   const [approvingContract, setApprovingContract] = useState(false);
   const [cancellingContract, setCancellingContract] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
-  const [selectedRecipients, setSelectedRecipients] = useState(new Set());
   const [bulkContracts, setBulkContracts] = useState([]);
-  const [bulkCreating, setBulkCreating] = useState(false);
+  const [creatingBatchId, setCreatingBatchId] = useState(null); // Track which batch is being processed
   const [bulkApproving, setBulkApproving] = useState(false);
   const [showBulkContracts, setShowBulkContracts] = useState(false);
-  const [bulkAmountModal, setBulkAmountModal] = useState({ open: false, amount: "" });
   const [showGroupModal, setShowGroupModal] = useState({ open: false });
 
   // Generate a consistent pastel color per batchId
@@ -836,64 +834,33 @@ export default function XeRecipients() {
     }
   };
 
-  // Bulk contract creation handlers
-  const handleSelectRecipient = (recipientId) => {
-    const newSelected = new Set(selectedRecipients);
-    if (newSelected.has(recipientId)) {
-      newSelected.delete(recipientId);
-    } else {
-      newSelected.add(recipientId);
-    }
-    setSelectedRecipients(newSelected);
-  };
-
-  const handleSelectAll = () => {
-    if (selectedRecipients.size === items.length) {
-      setSelectedRecipients(new Set());
-    } else {
-      setSelectedRecipients(new Set(items.filter((r) => r?.recipientId?.xeRecipientId).map((r) => r._id)));
-    }
-  };
-
-  const handleBulkCreateContracts = () => {
-    if (selectedRecipients.size === 0) {
-      setError("Please select at least one recipient");
+  // Create contracts for all recipients in a batch
+  const handleCreateBatchContracts = async (batchGroup) => {
+    if (!batchGroup || !batchGroup.recipients || batchGroup.recipients.length === 0) {
+      setError("No recipients found in this batch");
       return;
     }
 
-    // Get selected recipient details
-    const recipientsToProcess = items.filter((r) => selectedRecipients.has(r._id));
+    const batchId = batchGroup.batchId || "-";
+    
+    // Check if this batch is already being processed
+    if (creatingBatchId === batchId) {
+      return;
+    }
+
+    const recipientsToProcess = batchGroup.recipients;
 
     // Check if all recipients have amounts
     const recipientsWithoutAmounts = recipientsToProcess.filter((r) => !r.amount || r.amount <= 0);
     if (recipientsWithoutAmounts.length > 0) {
       setError(
-        `Some recipients don't have amounts set. Please ensure all selected recipients have an amount (USD) before creating contracts.`
+        `Some recipients in this batch don't have amounts set. Please ensure all recipients have an amount (USD) before creating contracts.`
       );
       return;
     }
 
-    // Proceed directly to create contracts with individual amounts
-    handleConfirmBulkAmount();
-  };
-
-  const handleConfirmBulkAmount = async () => {
-    setBulkCreating(true);
+    setCreatingBatchId(batchId);
     setError("");
-    setBulkAmountModal({ open: false, amount: "" });
-
-    // Get selected recipient details
-    const recipientsToProcess = items.filter((r) => selectedRecipients.has(r._id));
-
-    // Validate all recipients have amounts
-    const recipientsWithoutAmounts = recipientsToProcess.filter((r) => !r.amount || r.amount <= 0);
-    if (recipientsWithoutAmounts.length > 0) {
-      setError(
-        `Some recipients don't have amounts set. Please ensure all selected recipients have an amount (USD) before creating contracts.`
-      );
-      setBulkCreating(false);
-      return;
-    }
 
     try {
       // Prepare recipients array for bulk contract creation
@@ -906,12 +873,12 @@ export default function XeRecipients() {
         }));
 
       if (recipientsData.length === 0) {
-        setError("No valid recipients found");
-        setBulkCreating(false);
+        setError("No valid recipients found in this batch");
+        setCreatingBatchId(null);
         return;
       }
 
-      // Create single bulk contract with all recipients
+      // Create single bulk contract with all recipients in the batch
       const response = await createXeContract({
         recipients: recipientsData,
       });
@@ -921,7 +888,6 @@ export default function XeRecipients() {
         // Store the bulk contract
         setBulkContracts([contract]);
         setShowBulkContracts(true);
-        setSelectedRecipients(new Set());
         setError("");
       } else {
         setError("Failed to create bulk contract: No contract data received");
@@ -929,7 +895,7 @@ export default function XeRecipients() {
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Failed to create bulk contract");
     } finally {
-      setBulkCreating(false);
+      setCreatingBatchId(null);
     }
   };
 
@@ -1016,7 +982,7 @@ export default function XeRecipients() {
         </button>
       </div>
 
-      {/* Search Bar and Bulk Actions */}
+      {/* Search Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <form onSubmit={handleSearch} className="flex-1 max-w-md">
           <div className="relative">
@@ -1029,19 +995,6 @@ export default function XeRecipients() {
             />
           </div>
         </form>
-        {selectedRecipients.size > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600 dark:text-gray-400">{selectedRecipients.size} selected</span>
-            <Button
-              variant="primary"
-              onClick={handleBulkCreateContracts}
-              loading={bulkCreating}
-              disabled={bulkCreating}
-            >
-              Create Bulk Contracts
-            </Button>
-          </div>
-        )}
       </div>
 
       <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
@@ -1108,12 +1061,9 @@ export default function XeRecipients() {
                       <Button
                         variant="primary"
                         size="sm"
-                        onClick={async () => {
-                          // Select recipients from this group and run bulk create using individual amounts
-                          const ids = new Set(group.recipients.map((r) => r._id));
-                          setSelectedRecipients(ids);
-                          await handleBulkCreateContracts();
-                        }}
+                        onClick={() => handleCreateBatchContracts(group)}
+                        loading={creatingBatchId === group.batchId}
+                        disabled={creatingBatchId !== null}
                         className="text-xs"
                       >
                         Create Contracts
@@ -1169,11 +1119,11 @@ export default function XeRecipients() {
           <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
         </div>
       )}
-      {bulkCreating && (
+      {creatingBatchId && (
         <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
           <div className="flex items-center gap-2">
             <ArrowPathIcon className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
-            <p className="text-sm text-blue-600 dark:text-blue-400">Creating contracts in bulk... Please wait.</p>
+            <p className="text-sm text-blue-600 dark:text-blue-400">Creating contracts for batch {creatingBatchId}... Please wait.</p>
           </div>
         </div>
       )}
@@ -1267,56 +1217,6 @@ export default function XeRecipients() {
               ))}
             </tbody>
           </table>
-        </div>
-      </Modal>
-
-      {/* Bulk Amount Input Modal (retained for validation path but unused when grouped) */}
-      <Modal
-        isOpen={bulkAmountModal.open}
-        onClose={() => setBulkAmountModal({ open: false, amount: "" })}
-        title="Bulk Contract Creation"
-        size="md"
-        footer={
-          <div className="flex justify-end gap-3">
-            <Button
-              variant="outline"
-              onClick={() => setBulkAmountModal({ open: false, amount: "" })}
-              disabled={bulkCreating}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleConfirmBulkAmount} loading={bulkCreating} disabled={bulkCreating}>
-              Create Contracts
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
-            <p className="text-sm text-blue-800 dark:text-blue-200">
-              You are about to create contracts for <strong>{bulkAmountModal.recipientCount || 0}</strong> recipient(s).
-              All recipients will receive the same USD amount.
-            </p>
-          </div>
-          <div>
-            <label htmlFor="bulkAmount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Amount (USD) to Sell per Recipient
-            </label>
-            <input
-              id="bulkAmount"
-              type="number"
-              step="0.01"
-              min="0.01"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
-              placeholder="Enter amount in USD"
-              value={bulkAmountModal.amount}
-              onChange={(e) => setBulkAmountModal({ ...bulkAmountModal, amount: e.target.value })}
-              disabled={bulkCreating}
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Each recipient will receive the equivalent in their currency based on the current exchange rate.
-            </p>
-          </div>
         </div>
       </Modal>
 

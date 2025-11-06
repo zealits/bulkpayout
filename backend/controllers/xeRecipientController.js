@@ -300,7 +300,7 @@ const createXeRecipients = asyncHandler(async (req, res) => {
 module.exports = {
   createXeRecipients,
   transformRowToXeRecipient,
-  // List recipients with simple pagination and filtering
+  // List recipients with batch-wise pagination and filtering
   listXeRecipients: asyncHandler(async (req, res) => {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
@@ -313,32 +313,97 @@ module.exports = {
       environment = "sandbox";
     }
 
-    const query = { environment };
+    // Build base query for recipients
+    const recipientQuery = { environment };
     if (req.query.status) {
-      query.status = req.query.status;
+      recipientQuery.status = req.query.status;
     }
     if (req.query.search) {
       const search = req.query.search.trim();
-      query.$or = [
+      recipientQuery.$or = [
         { "recipientId.clientReference": { $regex: search, $options: "i" } },
         { "recipientId.xeRecipientId": { $regex: search, $options: "i" } },
         { "entity.consumer.givenNames": { $regex: search, $options: "i" } },
         { "entity.consumer.familyName": { $regex: search, $options: "i" } },
         { "entity.company.name": { $regex: search, $options: "i" } },
+        { batchId: { $regex: search, $options: "i" } },
       ];
     }
 
-    const [items, total] = await Promise.all([
-      XeRecipient.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      XeRecipient.countDocuments(query),
+    // Get all unique batchIds that match the query, sorted by most recent recipient creation
+    const distinctBatches = await XeRecipient.aggregate([
+      { $match: recipientQuery },
+      {
+        $group: {
+          _id: { $ifNull: ["$batchId", "-"] }, // Treat null/undefined batchId as "-"
+          latestCreatedAt: { $max: "$createdAt" },
+        },
+      },
+      { $sort: { latestCreatedAt: -1 } },
+      { $project: { _id: 1 } },
     ]);
+
+    // Extract batchIds (convert "-" back to null for querying)
+    const allBatchIds = distinctBatches.map((b) => (b._id === "-" ? null : b._id));
+    const totalBatches = allBatchIds.length;
+
+    // Paginate batchIds
+    const paginatedBatchIds = allBatchIds.slice(skip, skip + limit);
+
+    // For each batch, fetch all recipients
+    const batchGroups = await Promise.all(
+      paginatedBatchIds.map(async (batchId) => {
+        // Build query for this specific batch
+        // Handle null batchId case separately to avoid query conflicts
+        let batchQuery;
+        if (batchId === null) {
+          // For null batchId, combine recipientQuery with batchId conditions
+          batchQuery = {
+            ...recipientQuery,
+            $and: [
+              { $or: [{ batchId: null }, { batchId: { $exists: false } }] }
+            ]
+          };
+          // Remove $or from recipientQuery if it exists, and merge it into $and
+          if (recipientQuery.$or) {
+            batchQuery.$and = [
+              { $or: recipientQuery.$or },
+              { $or: [{ batchId: null }, { batchId: { $exists: false } }] }
+            ];
+            delete batchQuery.$or;
+          }
+        } else {
+          batchQuery = { ...recipientQuery, batchId: batchId };
+        }
+        
+        const batchRecipients = await XeRecipient.find(batchQuery)
+          .sort({ createdAt: -1 })
+          .lean();
+
+        // Calculate aggregated data for the batch
+        const totalAmount = batchRecipients.reduce((sum, r) => sum + (r.amount || 0), 0);
+        const createdAt = batchRecipients.length > 0 ? batchRecipients[0].createdAt : null;
+
+        return {
+          batchId: batchId,
+          recipients: batchRecipients,
+          recipientCount: batchRecipients.length,
+          totalAmount: totalAmount,
+          createdAt: createdAt,
+        };
+      })
+    );
+
+    // Flatten recipients for backward compatibility (frontend groups them anyway)
+    const items = batchGroups.flatMap((group) => group.recipients);
 
     return successResponse(res, {
       items,
       page,
       limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
+      total: items.length, // Total recipients in current page
+      totalPages: Math.ceil(totalBatches / limit) || 1,
+      batches: totalBatches, // Total number of batches
     });
   }),
   // Delete a recipient from XE and our DB

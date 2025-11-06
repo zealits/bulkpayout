@@ -948,6 +948,7 @@ const createXeContract = asyncHandler(async (req, res) => {
 
       // Determine purpose of payment code
       const purposeOfPaymentCode = buyCurrency === "INR" ? "CORP_INR_UTILTY" : "CORP_INVOICE";
+      
 
       // Get XE service instance to access environment-specific configuration
       const environment = getEnvironmentFromRequest(req);

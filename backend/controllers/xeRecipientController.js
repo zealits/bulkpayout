@@ -154,6 +154,7 @@ const createXeRecipients = asyncHandler(async (req, res) => {
   
   // Validate environment, default to sandbox
   const env = environment === "production" ? "production" : "sandbox";
+  console.log(`🌍 Creating XE recipients in ${env} environment (received: ${environment})`);
 
   if (!Array.isArray(sheetRows) || sheetRows.length === 0) {
     return errorResponse(res, "sheetRows array is required", 400);

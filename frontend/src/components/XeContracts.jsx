@@ -232,36 +232,7 @@ export default function XeContracts() {
         )}
       </div>
 
-      {/* Grouped by Batch (Overview) */}
-      <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm mb-6">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-900/50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Batch</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Contracts</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Total Amount (USD)</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {groupedContracts.map((g) => {
-              const total = g.contracts.reduce((s, c) => s + (c?.paymentRequest?.sellAmount?.amount || 0), 0);
-              return (
-                <tr key={g.batchId} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">{g.batchId}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{g.contracts.length}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{`$${total.toFixed(2)}`}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                    <Button variant="outline" size="sm" onClick={() => setDetailsModalOpen(false) || setSelectedContractNumber(null) || alert(`Contracts in ${g.batchId}:\n` + g.contracts.map(c => `${c.identifier?.contractNumber} - ${c.recipientName || ''} - $${(c?.paymentRequest?.sellAmount?.amount||0).toFixed(2)}`).join('\n'))}>View</Button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Contracts Table */}
+      {/* Contracts Table - Organized by Batch */}
       <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900/50">
@@ -269,16 +240,28 @@ export default function XeContracts() {
               <th className="px-6 py-3 text-left w-12">
                 <input
                   type="checkbox"
-                  checked={selectedContracts.size === items.length && items.length > 0}
-                  onChange={handleSelectAll}
+                  checked={selectedContracts.size === groupedContracts.length && groupedContracts.length > 0}
+                  onChange={() => {
+                    if (selectedContracts.size === groupedContracts.length) {
+                      setSelectedContracts(new Set());
+                    } else {
+                      const allContractNumbers = groupedContracts.flatMap(g => 
+                        g.contracts.map(c => c.identifier?.contractNumber).filter(Boolean)
+                      );
+                      setSelectedContracts(new Set(allContractNumbers));
+                    }
+                  }}
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800"
                 />
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Batch ID
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                 Contract Number
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                Recipient
+                Recipients
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                 Amount
@@ -298,9 +281,9 @@ export default function XeContracts() {
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {items.length === 0 && !loading && (
+            {groupedContracts.length === 0 && !loading && (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center">
+                <td colSpan={9} className="px-6 py-12 text-center">
                   <div className="flex flex-col items-center justify-center">
                     <p className="text-sm text-gray-500 dark:text-gray-400">No contracts found</p>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Try adjusting your search criteria</p>
@@ -308,7 +291,11 @@ export default function XeContracts() {
                 </td>
               </tr>
             )}
-            {items.map((contract) => {
+            {groupedContracts.map((batch) => {
+              // Get the first contract as representative (since batch = single contract)
+              const contract = batch.contracts[0];
+              if (!contract) return null;
+
               const fxDetail = contract.quote?.fxDetails?.[0];
               const sellAmount = fxDetail?.sell?.amount || contract.paymentRequest?.sellAmount?.amount || 0;
               const sellCurrency = fxDetail?.sell?.currency || contract.paymentRequest?.sellAmount?.currency || "USD";
@@ -320,13 +307,12 @@ export default function XeContracts() {
               const isExpired = secondsLeft <= 0;
               const isApproved = contract.status === "Approved" || contract.status === "ContractConfirmed";
               const canApprove = !isExpired && !isApproved && contract.quoteStatus === "Valid";
-
-              // Try to get recipient name - we may need to look it up or store it
-              const recipientName = "Recipient"; // Placeholder - you might want to join with recipients collection
+              // Since each batch = one contract, show recipient info from the contract
+              const recipientId = contract.recipientId?.xeRecipientId;
 
               return (
                 <tr
-                  key={contract._id}
+                  key={batch.batchId}
                   className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-150 ${
                     selectedContracts.has(contractNumber) ? "bg-blue-50 dark:bg-blue-900/20" : ""
                   }`}
@@ -342,14 +328,19 @@ export default function XeContracts() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-mono text-gray-900 dark:text-gray-100">
+                      {batch.batchId || "-"}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-mono text-gray-900 dark:text-gray-100">
                       {contractNumber || "-"}
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {contract.recipientId?.xeRecipientId ? (
+                      {recipientId ? (
                         <span className="font-mono text-xs text-gray-600 dark:text-gray-400">
-                          {contract.recipientId.xeRecipientId.substring(0, 20)}...
+                          {recipientId.substring(0, 20)}...
                         </span>
                       ) : (
                         "-"
@@ -385,11 +376,11 @@ export default function XeContracts() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {new Date(contract.createdAt).toLocaleDateString("en-US", {
+                    {contract.createdAt ? new Date(contract.createdAt).toLocaleDateString("en-US", {
                       year: "numeric",
                       month: "short",
                       day: "numeric",
-                    })}
+                    }) : "-"}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end gap-2">

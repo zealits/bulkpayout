@@ -202,7 +202,13 @@ export const generateXeTemplateBulk = async (selections) => {
 };
 
 // Create XE recipients from parsed workbook data (with SSE support)
-export const createXeRecipients = async (sheetRows, batchId = null, useSSE = false, onProgress = null) => {
+export const createXeRecipients = async (
+  sheetRows,
+  batchId = null,
+  useSSE = false,
+  onProgress = null,
+  environment = "sandbox"
+) => {
   try {
     if (useSSE && onProgress) {
       // Use Server-Sent Events for progress updates
@@ -218,7 +224,7 @@ export const createXeRecipients = async (sheetRows, batchId = null, useSSE = fal
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ sheetRows, batchId, useSSE: true }),
+          body: JSON.stringify({ sheetRows, batchId, useSSE: true, environment }),
           signal: controller.signal,
         })
           .then(async (response) => {
@@ -281,7 +287,7 @@ export const createXeRecipients = async (sheetRows, batchId = null, useSSE = fal
       });
     } else {
       // Normal request without SSE
-      const response = await api.post("/xe/create-recipients", { sheetRows, batchId, useSSE: false });
+      const response = await api.post("/xe/create-recipients", { sheetRows, batchId, useSSE: false, environment });
       return response;
     }
   } catch (error) {

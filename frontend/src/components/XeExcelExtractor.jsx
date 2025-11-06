@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { parseXeWorkbook, createXeRecipients, generateErrorHighlightedExcel } from "../services/xeService";
+import { useEnvironment } from "../contexts/EnvironmentContext";
 import Card from "./ui/Card";
 import Button from "./ui/Button";
 import Table from "./ui/Table";
@@ -9,6 +10,7 @@ import { Spinner } from "./ui/Loading";
 import { CheckCircleIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 
 function XeExcelExtractor() {
+  const { environment } = useEnvironment();
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -129,7 +131,8 @@ function XeExcelExtractor() {
                         // Update progress in real-time
                         setProcessedCount(progressData.processed || 0);
                         setProgressMessage(progressData.message || "");
-                      }
+                      },
+                      environment // Pass environment parameter
                     );
                     setCreateResult(response.data);
                     setProgressMessage("");

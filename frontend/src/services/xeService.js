@@ -261,9 +261,23 @@ export const approveXeContract = async (contractNumber) => {
 export const cancelXeContract = async (contractNumber) => {
   try {
     const response = await api.delete(`/xe/contracts/${encodeURIComponent(contractNumber)}`);
+    // Handle 204 status code (successful deletion with no content)
+    // The backend will return a proper response even for 204
     return response;
   } catch (error) {
-    throw error;
+    // Extract status code and error message for better error handling
+    const statusCode = error.status || error.response?.status;
+    const errorMessage = error.message || error.response?.data?.message || "Failed to cancel contract";
+
+    // Create a structured error object with status code
+    const enhancedError = {
+      ...error,
+      status: statusCode,
+      message: errorMessage,
+      statusCode: statusCode,
+    };
+
+    throw enhancedError;
   }
 };
 

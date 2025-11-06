@@ -682,13 +682,17 @@ class XeService {
 
       const response = await this.client.delete(url);
 
+      // 204 status code means successful deletion with no content
+      const isSuccess = response.status === 204 || response.status === 200;
+
       console.log("✅ XE contract cancelled successfully:", {
         contractNumber: contractNumber,
+        statusCode: response.status,
       });
 
       return {
-        success: true,
-        data: response.data,
+        success: isSuccess,
+        data: response.status === 204 ? { message: "Contract cancelled successfully" } : response.data,
         error: null,
         statusCode: response.status,
       };

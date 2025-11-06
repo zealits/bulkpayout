@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   getXeRecipients,
   deleteXeRecipient,
@@ -10,6 +10,7 @@ import { useEnvironment } from "../contexts/EnvironmentContext";
 import { ArrowPathIcon, MagnifyingGlassIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import Modal from "./ui/Modal";
 import Button from "./ui/Button";
+import ToastContainer from "./ui/ToastContainer";
 
 // Bulk Contract Details View Component
 function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
@@ -23,7 +24,8 @@ function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
 
     const calculateTimeLeft = () => {
       try {
-        const expires = contract.quote.expires instanceof Date ? contract.quote.expires : new Date(contract.quote.expires);
+        const expires =
+          contract.quote.expires instanceof Date ? contract.quote.expires : new Date(contract.quote.expires);
         const now = new Date();
         return Math.max(0, Math.floor((expires - now) / 1000));
       } catch {
@@ -88,7 +90,9 @@ function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
         </div>
         <div className="flex justify-between items-center">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Recipients:</span>
-          <span className="text-sm text-gray-900 dark:text-gray-100">{contract.recipientCount || contract.recipients?.length || 1}</span>
+          <span className="text-sm text-gray-900 dark:text-gray-100">
+            {contract.recipientCount || contract.recipients?.length || 1}
+          </span>
         </div>
       </div>
 
@@ -182,7 +186,9 @@ function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
       {/* Recipients List */}
       {contract.recipients && contract.recipients.length > 0 && (
         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recipients ({contract.recipients.length})</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Recipients ({contract.recipients.length})
+          </h3>
           <div className="max-h-60 overflow-auto space-y-2">
             {contract.recipients.map((recipient, idx) => (
               <div key={idx} className="bg-white dark:bg-gray-800 rounded p-3 text-sm">
@@ -623,6 +629,7 @@ export default function XeRecipients() {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState("");
   const [deleteModal, setDeleteModal] = useState({ open: false, recipient: null });
@@ -637,6 +644,32 @@ export default function XeRecipients() {
   const [bulkApproving, setBulkApproving] = useState(false);
   const [showBulkContracts, setShowBulkContracts] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState({ open: false });
+
+  // Use ref to track contract number even if modal state resets
+  const currentContractNumberRef = useRef(null);
+
+  // Use ref to track if contract is approved (to stop timer immediately)
+  const isContractApprovedRef = useRef(false);
+
+  // Use ref to store the timer interval ID so we can clear it from anywhere
+  const timerIntervalRef = useRef(null);
+
+  // Toast notifications state
+  const [toasts, setToasts] = useState([]);
+  const toastIdCounter = useRef(0);
+
+  // Helper function to show toast notifications
+  const showToast = (message, type = "success", duration = 5000) => {
+    const id = toastIdCounter.current++;
+    const newToast = { id, message, type, duration };
+    setToasts((prev) => [...prev, newToast]);
+    return id;
+  };
+
+  // Helper function to remove toast
+  const removeToast = (id) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  };
 
   // Generate a consistent pastel color per batchId
   const colorForBatch = (batchId) => {
@@ -680,6 +713,27 @@ export default function XeRecipients() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, environment]);
 
+  // Show error toast if there's an error state (for backward compatibility)
+  useEffect(() => {
+    if (error && !toasts.some((t) => t.type === "error" && t.message === error)) {
+      showToast(error, "error", 6000);
+      setError(""); // Clear error state after showing toast
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error]);
+
+  // Show creating batch notification as toast
+  useEffect(() => {
+    if (creatingBatchId) {
+      const toastId = showToast(`Creating contracts for batch ${creatingBatchId}... Please wait.`, "info", 0); // 0 = don't auto-dismiss
+      return () => {
+        // Remove toast when creatingBatchId changes or component unmounts
+        removeToast(toastId);
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creatingBatchId]);
+
   const handleSearch = (e) => {
     e.preventDefault();
     setPage(1);
@@ -712,16 +766,151 @@ export default function XeRecipients() {
 
   const handleCreateContractClick = (recipient) => {
     setAmountModal({ open: true, recipient, contract: null });
+    currentContractNumberRef.current = null; // Clear ref when opening new modal
     setContractAmount("");
     setSecondsLeft(0);
     setError("");
+    setSuccessMessage("");
   };
 
-  const handleAmountCancel = () => {
-    setAmountModal({ open: false, recipient: null, contract: null });
-    setContractAmount("");
-    setSecondsLeft(0);
-    setError("");
+  // Helper function to get user-friendly message based on status code
+  const getContractDeletionMessage = (statusCode, defaultMessage) => {
+    if (statusCode === 204) {
+      return "Contract cancelled successfully";
+    } else if (statusCode === 400) {
+      return "The requested operation could not be performed. Request is invalid or incorrect.";
+    } else if (statusCode === 401) {
+      return "Unauthorized - Invalid Token or Client Id";
+    } else if (statusCode === 404) {
+      return "Contract not found";
+    } else if (statusCode === 500) {
+      return "An internal error has occurred in XE platform.";
+    }
+    return defaultMessage || "Failed to cancel contract";
+  };
+
+  // Helper function to delete contract silently (for modal close and expiration)
+  const deleteContractSilently = async (contractNumber) => {
+    if (!contractNumber) {
+      console.log("⚠️ deleteContractSilently: No contract number provided");
+      return false;
+    }
+
+    console.log("🔴 deleteContractSilently: Calling API to delete contract:", contractNumber);
+    try {
+      const response = await cancelXeContract(contractNumber);
+      console.log("✅ deleteContractSilently: Contract deleted successfully:", contractNumber);
+      return true;
+    } catch (err) {
+      // Log error but don't show to user for silent deletions
+      console.error("❌ deleteContractSilently: Error deleting contract:", err);
+      console.error("❌ Error details:", {
+        message: err.message,
+        status: err.status,
+        statusCode: err.statusCode,
+        response: err.response,
+      });
+      return false;
+    }
+  };
+
+  // Helper function to delete contract with user feedback
+  const deleteContractWithFeedback = async (contractNumber, showMessage = true) => {
+    if (!contractNumber) {
+      console.log("deleteContractWithFeedback: No contract number provided");
+      if (showMessage) {
+        setError("Contract number is required");
+        setSuccessMessage("");
+      }
+      return false;
+    }
+
+    console.log("deleteContractWithFeedback: Calling API to delete contract:", contractNumber);
+    try {
+      const response = await cancelXeContract(contractNumber);
+      console.log("deleteContractWithFeedback: API response:", response);
+      if (showMessage) {
+        // Use the message from API response, or default success message
+        const successMsg = response?.message || "Contract cancelled and deleted successfully";
+        showToast(successMsg, "success", 4000);
+      }
+      return true;
+    } catch (err) {
+      console.error("deleteContractWithFeedback: API error:", err);
+      // Extract status code and show appropriate message
+      const statusCode = err.statusCode || err.status || err.response?.status;
+      if (showMessage) {
+        // Use the error message from API response if available
+        const errorMessage = err.message || getContractDeletionMessage(statusCode, "Failed to cancel contract");
+        showToast(errorMessage, "error", 6000);
+      }
+      return false;
+    }
+  };
+
+  const handleAmountCancel = async () => {
+    console.log("🔴 handleAmountCancel called");
+    console.log("🔴 amountModal state:", JSON.stringify(amountModal, null, 2));
+
+    // If there's a contract, check if it's approved before deleting
+    const contract = amountModal.contract;
+    console.log("🔴 Contract object:", contract);
+    console.log("🔴 Contract status:", contract?.status);
+
+    // If contract is already approved, don't delete it - just close the modal
+    if (contract?.status === "Approved") {
+      console.log("✅ Contract is approved, closing modal without deletion");
+      setAmountModal({ open: false, recipient: null, contract: null });
+      currentContractNumberRef.current = null; // Clear ref
+      isContractApprovedRef.current = false; // Reset approval ref
+      setContractAmount("");
+      setSecondsLeft(0);
+      return;
+    }
+
+    console.log("🔴 Contract identifier:", contract?.identifier);
+    console.log("🔴 Contract number:", contract?.identifier?.contractNumber);
+    console.log("🔴 Contract number from ref:", currentContractNumberRef.current);
+
+    // Try to get contract number from state first, then from ref
+    let contractNumber = contract?.identifier?.contractNumber || contract?.contractNumber;
+    if (!contractNumber && currentContractNumberRef.current) {
+      contractNumber = currentContractNumberRef.current;
+      console.log("⚠️ Contract not in state, using ref:", contractNumber);
+    }
+
+    if (contractNumber) {
+      console.log("✅ Contract number found, deleting:", contractNumber);
+      // Show loading state
+      setCancellingContract(true);
+      try {
+        const success = await deleteContractWithFeedback(contractNumber, true);
+        console.log("✅ Contract deletion result:", success);
+        // Close modal and refresh
+        setAmountModal({ open: false, recipient: null, contract: null });
+        currentContractNumberRef.current = null; // Clear ref
+        setContractAmount("");
+        setSecondsLeft(0);
+        setCancellingContract(false);
+        fetchData();
+      } catch (err) {
+        console.error("❌ Error in handleAmountCancel:", err);
+        setCancellingContract(false);
+        // Still close the modal even if deletion fails
+        setAmountModal({ open: false, recipient: null, contract: null });
+        currentContractNumberRef.current = null; // Clear ref
+        setContractAmount("");
+        setSecondsLeft(0);
+      }
+    } else {
+      // If no contract, just close
+      console.log("⚠️ No contract number found, closing modal without deletion");
+      console.log("⚠️ Contract object keys:", contract ? Object.keys(contract) : "null");
+      setAmountModal({ open: false, recipient: null, contract: null });
+      currentContractNumberRef.current = null; // Clear ref
+      setContractAmount("");
+      setSecondsLeft(0);
+    }
   };
 
   const handleCreateContract = async () => {
@@ -733,6 +922,7 @@ export default function XeRecipients() {
 
     setCreatingContract(true);
     setError("");
+    setSuccessMessage("");
 
     try {
       const response = await createXeContract({
@@ -747,22 +937,32 @@ export default function XeRecipients() {
       console.log("Extracted contract:", contract);
 
       if (contract) {
-        console.log("Contract created successfully:", {
-          contractNumber: contract?.identifier?.contractNumber,
+        const contractNumber = contract?.identifier?.contractNumber || contract?.contractNumber;
+        console.log("✅ Contract created successfully:", {
+          contractNumber: contractNumber,
+          fullContract: contract,
+          identifier: contract?.identifier,
           hasQuote: !!contract?.quote,
           hasFxDetails: !!contract?.quote?.fxDetails,
           fxDetailsLength: contract?.quote?.fxDetails?.length,
         });
         // Keep modal open but show contract details
         setAmountModal({ ...amountModal, contract });
+        // Store contract number in ref for tab visibility handler
+        currentContractNumberRef.current = contractNumber;
         setContractAmount("");
         setError(""); // Clear any previous errors
+        setSuccessMessage("");
+        console.log("✅ Contract stored in amountModal.contract:", contractNumber);
+        console.log("✅ Contract number stored in ref:", currentContractNumberRef.current);
       } else {
         console.error("No contract data in response:", response);
         setError("Failed to create contract: No contract data received");
+        setSuccessMessage("");
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Failed to create contract");
+      setSuccessMessage("");
     } finally {
       setCreatingContract(false);
     }
@@ -770,12 +970,42 @@ export default function XeRecipients() {
 
   // Countdown timer for contract expiration
   useEffect(() => {
+    // Clear any existing interval first
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
     if (!amountModal.contract || !amountModal.contract.quote?.expires) {
       setSecondsLeft(0);
+      isContractApprovedRef.current = false;
       return;
     }
 
+    // Reset approval ref when contract changes
+    isContractApprovedRef.current = amountModal.contract.status === "Approved";
+
+    // Stop timer if contract is already approved
+    if (amountModal.contract.status === "Approved") {
+      setSecondsLeft(0);
+      isContractApprovedRef.current = true;
+      return;
+    }
+
+    let hasDeletedOnExpiry = false; // Flag to prevent multiple deletions
+    const contractNumber = amountModal.contract?.identifier?.contractNumber;
+
     const calculateTimeLeft = () => {
+      // Check ref first (updated immediately when approved)
+      if (isContractApprovedRef.current) {
+        setSecondsLeft(0);
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
+        }
+        return;
+      }
+
       try {
         const expires =
           amountModal.contract.quote.expires instanceof Date
@@ -784,6 +1014,30 @@ export default function XeRecipients() {
         const now = new Date();
         const diff = Math.max(0, Math.floor((expires - now) / 1000));
         setSecondsLeft(diff);
+
+        // If time expired and we haven't deleted yet, delete the contract
+        if (diff === 0 && !hasDeletedOnExpiry && contractNumber) {
+          hasDeletedOnExpiry = true;
+          // Delete contract silently when expired
+          deleteContractSilently(contractNumber).then((success) => {
+            if (success) {
+              showToast("Contract has expired and has been automatically cancelled.", "success", 4000);
+              // Close modal after a short delay
+              setTimeout(() => {
+                setAmountModal({ open: false, recipient: null, contract: null });
+                setContractAmount("");
+                setSecondsLeft(0);
+                fetchData();
+              }, 2000);
+            } else {
+              showToast(
+                "Contract has expired but could not be automatically cancelled. Please try again.",
+                "error",
+                6000
+              );
+            }
+          });
+        }
       } catch (error) {
         console.error("Error calculating time left:", error);
         setSecondsLeft(0);
@@ -791,10 +1045,32 @@ export default function XeRecipients() {
     };
 
     calculateTimeLeft();
-    const interval = setInterval(calculateTimeLeft, 1000);
+    timerIntervalRef.current = setInterval(calculateTimeLeft, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amountModal.contract]);
+
+  // Helper function to get user-friendly message for approval based on status code
+  const getContractApprovalMessage = (statusCode, defaultMessage) => {
+    if (statusCode === 200) {
+      return "Contract approved successfully";
+    } else if (statusCode === 400) {
+      return "The requested operation could not be performed. Request is invalid or incorrect.";
+    } else if (statusCode === 401) {
+      return "Unauthorized - Invalid Token or Client Id";
+    } else if (statusCode === 404) {
+      return "Contract not found";
+    } else if (statusCode === 500) {
+      return "An internal error has occurred in XE platform.";
+    }
+    return defaultMessage || "Failed to approve contract";
+  };
 
   const handleApproveContract = async () => {
     const contract = amountModal.contract;
@@ -804,31 +1080,80 @@ export default function XeRecipients() {
     setError("");
 
     try {
-      await approveXeContract(contract.identifier.contractNumber);
-      // Close modal and refresh
-      handleAmountCancel();
-      await fetchData();
+      const response = await approveXeContract(contract.identifier.contractNumber);
+      console.log("✅ Contract approved successfully:", response);
+
+      // Show success toast notification
+      const successMsg = response?.message || "Contract approved successfully";
+      showToast(successMsg, "success", 4000);
+
+      // Stop the timer immediately by clearing the interval and updating refs
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      isContractApprovedRef.current = true;
+      setSecondsLeft(0);
+
+      // Update contract status in modal state
+      const updatedContract = { ...contract, status: "Approved", approvedAt: new Date() };
+      setAmountModal({ ...amountModal, contract: updatedContract });
+
+      // Close modal after a brief delay to show the success message
+      setTimeout(() => {
+        setAmountModal({ open: false, recipient: null, contract: null });
+        currentContractNumberRef.current = null; // Clear ref
+        isContractApprovedRef.current = false; // Reset approval ref
+        setContractAmount("");
+        fetchData();
+      }, 1500);
     } catch (err) {
-      setError(err.response?.data?.message || err.message || "Failed to approve contract");
+      console.error("❌ Error in handleApproveContract:", err);
+      // Extract status code and show appropriate message
+      const statusCode = err.statusCode || err.status || err.response?.status;
+      const errorMessage = err.message || getContractApprovalMessage(statusCode, "Failed to approve contract");
+      showToast(errorMessage, "error", 6000);
     } finally {
       setApprovingContract(false);
     }
   };
 
   const handleCancelContract = async () => {
+    console.log("🔴 handleCancelContract called (Cancel Contract button)");
     const contract = amountModal.contract;
-    if (!contract?.identifier?.contractNumber) return;
+    console.log("🔴 Contract object:", contract);
 
+    const contractNumber = contract?.identifier?.contractNumber || contract?.contractNumber;
+
+    if (!contractNumber) {
+      console.error("❌ No contract number found in handleCancelContract");
+      return;
+    }
+
+    console.log("✅ Contract number found, deleting:", contractNumber);
     setCancellingContract(true);
     setError("");
+    setSuccessMessage("");
 
     try {
-      await cancelXeContract(contract.identifier.contractNumber);
+      const response = await cancelXeContract(contractNumber);
+      console.log("✅ Contract cancelled successfully via Cancel Contract button");
+      // Show success toast notification
+      const successMsg = response?.message || "Contract cancelled and deleted successfully";
+      showToast(successMsg, "success", 4000);
+
       // Close modal and refresh
-      handleAmountCancel();
-      await fetchData();
+      setAmountModal({ open: false, recipient: null, contract: null });
+      currentContractNumberRef.current = null; // Clear ref
+      setContractAmount("");
+      setSecondsLeft(0);
+      fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || err.message || "Failed to cancel contract");
+      console.error("❌ Error in handleCancelContract:", err);
+      // Extract status code and show appropriate message
+      const statusCode = err.statusCode || err.status || err.response?.status;
+      const errorMessage = err.message || getContractDeletionMessage(statusCode, "Failed to cancel contract");
+      showToast(errorMessage, "error", 6000);
     } finally {
       setCancellingContract(false);
     }
@@ -842,7 +1167,7 @@ export default function XeRecipients() {
     }
 
     const batchId = batchGroup.batchId || "-";
-    
+
     // Check if this batch is already being processed
     if (creatingBatchId === batchId) {
       return;
@@ -861,6 +1186,7 @@ export default function XeRecipients() {
 
     setCreatingBatchId(batchId);
     setError("");
+    // Toast notification will be shown automatically via useEffect
 
     try {
       // Prepare recipients array for bulk contract creation
@@ -885,15 +1211,28 @@ export default function XeRecipients() {
 
       const contract = response?.data;
       if (contract) {
+        const contractNumber = contract?.identifier?.contractNumber || contract?.contractNumber;
+        console.log("✅ Bulk contract created successfully:", {
+          contractNumber: contractNumber,
+          fullContract: contract,
+        });
+        // Store contract number in ref for tab visibility handler
+        currentContractNumberRef.current = contractNumber;
+        console.log("✅ Bulk contract number stored in ref:", currentContractNumberRef.current);
         // Store the bulk contract
         setBulkContracts([contract]);
         setShowBulkContracts(true);
         setError("");
+        showToast("Bulk contract created successfully!", "success", 4000);
       } else {
-        setError("Failed to create bulk contract: No contract data received");
+        const errorMsg = "Failed to create bulk contract: No contract data received";
+        setError(errorMsg);
+        showToast(errorMsg, "error", 6000);
       }
     } catch (err) {
-      setError(err.response?.data?.message || err.message || "Failed to create bulk contract");
+      const errorMsg = err.response?.data?.message || err.message || "Failed to create bulk contract";
+      setError(errorMsg);
+      showToast(errorMsg, "error", 6000);
     } finally {
       setCreatingBatchId(null);
     }
@@ -901,7 +1240,7 @@ export default function XeRecipients() {
 
   const handleApproveSelected = async (contractNumbers) => {
     if (contractNumbers.length === 0) {
-      setError("Please select at least one contract to approve");
+      showToast("Please select at least one contract to approve", "warning", 4000);
       return;
     }
 
@@ -911,12 +1250,14 @@ export default function XeRecipients() {
 
     for (const contractNumber of contractNumbers) {
       try {
-        await approveXeContract(contractNumber);
+        const response = await approveXeContract(contractNumber);
         results.success.push(contractNumber);
       } catch (err) {
+        const statusCode = err.statusCode || err.status || err.response?.status;
+        const errorMessage = err.message || getContractApprovalMessage(statusCode, "Failed to approve");
         results.failed.push({
           contractNumber,
-          error: err.response?.data?.message || err.message || "Failed to approve",
+          error: errorMessage,
         });
       }
     }
@@ -933,15 +1274,20 @@ export default function XeRecipients() {
 
     setBulkApproving(false);
 
-    if (results.failed.length > 0) {
-      setError(
-        `${results.failed.length} contract(s) failed to approve. ${results.success.length} approved successfully.`
+    // Show appropriate toast notifications
+    if (results.failed.length > 0 && results.success.length > 0) {
+      showToast(
+        `Partially successful: ${results.success.length} contract(s) approved, ${results.failed.length} failed.`,
+        "warning",
+        6000
       );
+    } else if (results.failed.length > 0) {
+      showToast(`Failed to approve ${results.failed.length} contract(s).`, "error", 6000);
     } else {
-      setError("");
-      // Refresh data after successful approval
-      await fetchData();
+      showToast(`Successfully approved ${results.success.length} contract(s)!`, "success", 4000);
     }
+
+    await fetchData();
   };
 
   const handleApproveAll = async () => {
@@ -1001,11 +1347,21 @@ export default function XeRecipients() {
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900/50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Batch</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Recipients</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Total Amount (USD)</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Created</th>
-              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Batch
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Recipients
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Total Amount (USD)
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Created
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -1031,9 +1387,14 @@ export default function XeRecipients() {
               const totalAmount = group.recipients.reduce((sum, r) => sum + (r.amount || 0), 0);
               const createdAt = group.recipients[0]?.createdAt;
               return (
-                <tr key={group.batchId} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-150">
+                <tr
+                  key={group.batchId}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-150"
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${c.bg} ${c.text} ${c.ring}`}>
+                    <span
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${c.bg} ${c.text} ${c.ring}`}
+                    >
                       {group.batchId}
                     </span>
                   </td>
@@ -1045,7 +1406,11 @@ export default function XeRecipients() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {createdAt
-                      ? new Date(createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                      ? new Date(createdAt).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })
                       : "-"}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -1114,19 +1479,8 @@ export default function XeRecipients() {
           </div>
         </div>
       )}
-      {error && (
-        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4">
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-        </div>
-      )}
-      {creatingBatchId && (
-        <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
-          <div className="flex items-center gap-2">
-            <ArrowPathIcon className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
-            <p className="text-sm text-blue-600 dark:text-blue-400">Creating contracts for batch {creatingBatchId}... Please wait.</p>
-          </div>
-        </div>
-      )}
+      {/* Toast Notifications Container */}
+      <ToastContainer toasts={toasts} onClose={removeToast} />
 
       {/* Delete Confirmation Modal */}
       <Modal
@@ -1224,16 +1578,81 @@ export default function XeRecipients() {
       {showBulkContracts && bulkContracts.length > 0 && (
         <Modal
           isOpen={showBulkContracts}
-          onClose={() => setShowBulkContracts(false)}
+          onClose={async () => {
+            console.log("🔴 Bulk contract modal closing");
+            const contract = bulkContracts[0];
+            const contractNumber =
+              contract?.identifier?.contractNumber || contract?.contractNumber || currentContractNumberRef.current;
+
+            if (contractNumber) {
+              console.log("✅ Deleting bulk contract on modal close:", contractNumber);
+              setCancellingContract(true);
+              try {
+                await deleteContractWithFeedback(contractNumber, true);
+                console.log("✅ Bulk contract deleted successfully");
+                setBulkContracts([]);
+                setShowBulkContracts(false);
+                currentContractNumberRef.current = null;
+                setCancellingContract(false);
+                fetchData();
+                return;
+              } catch (err) {
+                console.error("❌ Error deleting bulk contract:", err);
+                setCancellingContract(false);
+              }
+            }
+
+            // If no contract or deletion failed, just close
+            setBulkContracts([]);
+            setShowBulkContracts(false);
+            currentContractNumberRef.current = null;
+          }}
           title={
             bulkContracts[0]?.isBulk
-              ? `Bulk Contract - ${bulkContracts[0]?.recipientCount || bulkContracts[0]?.recipients?.length || 0} Recipients`
+              ? `Bulk Contract - ${
+                  bulkContracts[0]?.recipientCount || bulkContracts[0]?.recipients?.length || 0
+                } Recipients`
               : `Bulk Contracts (${bulkContracts.length})`
           }
           size="xl"
           footer={
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowBulkContracts(false)}>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  console.log("🔴 Bulk contract modal Close button clicked");
+                  const contract = bulkContracts[0];
+                  const contractNumber =
+                    contract?.identifier?.contractNumber ||
+                    contract?.contractNumber ||
+                    currentContractNumberRef.current;
+
+                  if (contractNumber) {
+                    console.log("✅ Deleting bulk contract on Close button:", contractNumber);
+                    setCancellingContract(true);
+                    try {
+                      await deleteContractWithFeedback(contractNumber, true);
+                      console.log("✅ Bulk contract deleted successfully");
+                      setBulkContracts([]);
+                      setShowBulkContracts(false);
+                      currentContractNumberRef.current = null;
+                      setCancellingContract(false);
+                      fetchData();
+                      return;
+                    } catch (err) {
+                      console.error("❌ Error deleting bulk contract:", err);
+                      setCancellingContract(false);
+                    }
+                  }
+
+                  // If no contract or deletion failed, just close
+                  setBulkContracts([]);
+                  setShowBulkContracts(false);
+                  currentContractNumberRef.current = null;
+                }}
+                disabled={cancellingContract}
+                loading={cancellingContract}
+              >
                 Close
               </Button>
             </div>
@@ -1307,7 +1726,7 @@ export default function XeRecipients() {
           <ContractDetailsView
             contract={amountModal.contract}
             secondsLeft={secondsLeft}
-            error={error}
+            error=""
             approvingContract={approvingContract}
           />
         ) : (

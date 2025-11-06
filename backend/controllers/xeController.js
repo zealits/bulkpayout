@@ -948,7 +948,6 @@ const createXeContract = asyncHandler(async (req, res) => {
 
       // Determine purpose of payment code
       const purposeOfPaymentCode = buyCurrency === "INR" ? "CORP_INR_UTILTY" : "CORP_INVOICE";
-      
 
       // Get XE service instance to access environment-specific configuration
       const environment = getEnvironmentFromRequest(req);
@@ -1125,22 +1124,50 @@ const cancelXeContract = asyncHandler(async (req, res) => {
     const xeService = getXeService(environment);
     const result = await xeService.cancelContract(contractNumber);
 
+    // Handle different status codes from XE API
     if (!result.success) {
-      return errorResponse(res, result.error, 400, {
-        message: "Failed to cancel XE contract",
-        suggestion: "Please check the contract status and try again.",
-        action: "Verify contract status",
+      const statusCode = result.statusCode || 400;
+      let errorMessage = result.error || "Failed to cancel XE contract";
+      let userMessage = "Failed to cancel XE contract";
+
+      // Map status codes to user-friendly messages
+      if (statusCode === 400) {
+        userMessage = "The requested operation could not be performed. Request is invalid or incorrect.";
+      } else if (statusCode === 401) {
+        userMessage = "Unauthorized - Invalid Token or Client Id";
+      } else if (statusCode === 404) {
+        userMessage = "Contract not found";
+      } else if (statusCode === 500) {
+        userMessage = "An internal error has occurred in XE platform.";
+      }
+
+      return errorResponse(res, userMessage, statusCode, {
+        message: userMessage,
+        suggestion:
+          statusCode === 401 ? "Please check your authentication credentials." : "Please try again or contact support.",
+        action: statusCode === 401 ? "Check authentication" : "Retry operation",
         severity: "error",
-        retryable: true,
-        details: result.details,
+        retryable: statusCode !== 401 && statusCode !== 404,
+        details: result.details || { originalError: errorMessage },
       });
     }
 
-    // Update contract status in database
-    contract.status = "Cancelled";
-    await contract.save();
+    // Delete contract from database after successful cancellation in XE
+    const deletedContract = await XeContract.findOneAndDelete({ "identifier.contractNumber": contractNumber });
 
-    successResponse(res, contract.toObject(), "XE contract cancelled successfully");
+    if (!deletedContract) {
+      console.warn(`⚠️ Contract ${contractNumber} was cancelled in XE but not found in database for deletion`);
+    } else {
+      console.log(`✅ Contract ${contractNumber} deleted from database`);
+    }
+
+    // Return success message - 204 means successfully cancelled
+    const message =
+      result.statusCode === 204
+        ? "Contract cancelled and deleted successfully"
+        : "Contract cancelled and deleted successfully";
+
+    successResponse(res, { contractNumber, deleted: true }, message);
   } catch (error) {
     console.error("Error in cancelXeContract:", error);
     return errorResponse(res, "Failed to cancel contract", 500, {
@@ -1183,14 +1210,31 @@ const approveXeContract = asyncHandler(async (req, res) => {
     const xeService = getXeService(environment);
     const result = await xeService.approveContract(contractNumber);
 
+    // Handle different status codes from XE API
     if (!result.success) {
-      return errorResponse(res, result.error, 400, {
-        message: "Failed to approve XE contract",
-        suggestion: "Please check the contract status and try again.",
-        action: "Verify contract status",
+      const statusCode = result.statusCode || 400;
+      let errorMessage = result.error || "Failed to approve XE contract";
+      let userMessage = "Failed to approve XE contract";
+
+      // Map status codes to user-friendly messages
+      if (statusCode === 400) {
+        userMessage = "The requested operation could not be performed. Request is invalid or incorrect.";
+      } else if (statusCode === 401) {
+        userMessage = "Unauthorized - Invalid Token or Client Id";
+      } else if (statusCode === 404) {
+        userMessage = "Contract not found";
+      } else if (statusCode === 500) {
+        userMessage = "An internal error has occurred in XE platform.";
+      }
+
+      return errorResponse(res, userMessage, statusCode, {
+        message: userMessage,
+        suggestion:
+          statusCode === 401 ? "Please check your authentication credentials." : "Please try again or contact support.",
+        action: statusCode === 401 ? "Check authentication" : "Retry operation",
         severity: "error",
-        retryable: true,
-        details: result.details,
+        retryable: statusCode !== 401 && statusCode !== 404,
+        details: result.details || { originalError: errorMessage },
       });
     }
 
@@ -1209,7 +1253,10 @@ const approveXeContract = asyncHandler(async (req, res) => {
 
     await contract.save();
 
-    successResponse(res, contract.toObject(), "XE contract approved successfully");
+    // Return success message - 200 means successfully approved
+    const message = result.statusCode === 200 ? "Contract approved successfully" : "XE contract approved successfully";
+
+    successResponse(res, contract.toObject(), message);
   } catch (error) {
     console.error("Error in approveXeContract:", error);
     return errorResponse(res, "Failed to approve contract", 500, {

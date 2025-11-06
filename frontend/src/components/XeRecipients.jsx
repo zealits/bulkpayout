@@ -12,6 +12,121 @@ import Modal from "./ui/Modal";
 import Button from "./ui/Button";
 import ToastContainer from "./ui/ToastContainer";
 
+// Helper function to get contract status styling and information
+const getContractStatusInfo = (status) => {
+  const statusMap = {
+    PaymentIssues: {
+      color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+      description: "Some payments contain issues, contract cannot be approved until these are corrected or removed",
+      icon: "⚠️",
+      canApprove: false,
+      canCancel: true,
+    },
+    QuoteRequired: {
+      color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+      description: "Quote has expired or needs generating",
+      icon: "⏳",
+      canApprove: false,
+      canCancel: true,
+    },
+    ContractUnconfirmed: {
+      color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+      description: "Contract is waiting to be confirmed (Approved)",
+      icon: "📋",
+      canApprove: true,
+      canCancel: true,
+    },
+    ContractConfirmed: {
+      color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+      description: "Contract has been confirmed (Approved)",
+      icon: "✅",
+      canApprove: false,
+      canCancel: false,
+    },
+    Completed: {
+      color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+      description: "Contract has been settled and all payouts have been completed",
+      icon: "🎉",
+      canApprove: false,
+      canCancel: false,
+    },
+    ExposureLimitReached: {
+      color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+      description: "Client has reached their exposure limit set by Xe",
+      icon: "🚫",
+      canApprove: false,
+      canCancel: true,
+    },
+    Cancelled: {
+      color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
+      description: "Contract has been cancelled",
+      icon: "❌",
+      canApprove: false,
+      canCancel: false,
+    },
+    AwaitingRecipientDetails: {
+      color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+      description: "Awaiting recipient details",
+      icon: "👤",
+      canApprove: false,
+      canCancel: true,
+    },
+    AwaitingFunds: {
+      color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+      description: "Awaiting funds",
+      icon: "💰",
+      canApprove: false,
+      canCancel: true,
+    },
+    ReadyForRelease: {
+      color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+      description: "Ready for release",
+      icon: "🚀",
+      canApprove: false,
+      canCancel: true,
+    },
+    Processing: {
+      color: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+      description: "Contract is being processed, refresh after few seconds",
+      icon: "⚙️",
+      canApprove: false,
+      canCancel: false,
+    },
+    SettlementMethodNotAvailable: {
+      color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+      description: "Selected settlement method is not available",
+      icon: "⚠️",
+      canApprove: false,
+      canCancel: true,
+    },
+    HeldInCurrencyAccount: {
+      color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+      description: "Amount added to currency account balance",
+      icon: "💳",
+      canApprove: false,
+      canCancel: false,
+    },
+    // Legacy statuses for backward compatibility
+    Approved: {
+      color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+      description: "Contract has been approved",
+      icon: "✅",
+      canApprove: false,
+      canCancel: false,
+    },
+  };
+
+  return (
+    statusMap[status] || {
+      color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
+      description: status || "Unknown status",
+      icon: "❓",
+      canApprove: false,
+      canCancel: true,
+    }
+  );
+};
+
 // Bulk Contract Details View Component
 function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -54,8 +169,10 @@ function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
 
   const contractNumber = contract.identifier?.contractNumber;
   const isExpired = secondsLeft <= 0;
-  const isApproved = contract.status === "Approved" || contract.status === "ContractConfirmed";
-  const canApprove = !isExpired && !isApproved;
+  const statusInfo = getContractStatusInfo(contract.status);
+  const isApproved =
+    contract.status === "Approved" || contract.status === "ContractConfirmed" || contract.status === "Completed";
+  const canApprove = !isExpired && statusInfo.canApprove && contract.quoteStatus === "Valid";
 
   // Calculate totals from summary
   const summary = contract.summary?.[0];
@@ -77,17 +194,16 @@ function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
         <div className="flex justify-between items-center">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</span>
           <span
-            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-              isApproved
-                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                : isExpired
-                ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-            }`}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.color}`}
+            title={statusInfo.description}
           >
-            {contract.status || "Unknown"}
+            <span>{statusInfo.icon}</span>
+            <span>{contract.status || "Unknown"}</span>
           </span>
         </div>
+        {statusInfo.description && (
+          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">{statusInfo.description}</div>
+        )}
         <div className="flex justify-between items-center">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Recipients:</span>
           <span className="text-sm text-gray-900 dark:text-gray-100">
@@ -226,17 +342,24 @@ function BulkContractDetailsView({ contract, onApprove, bulkApproving }) {
       </div>
 
       {/* Approve Button */}
-      <div className="flex justify-end">
-        <Button
-          variant="primary"
-          onClick={() => onApprove([contractNumber])}
-          disabled={!canApprove || bulkApproving}
-          loading={bulkApproving}
-          size="lg"
-        >
-          Approve Contract
-        </Button>
-      </div>
+      {canApprove && (
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            onClick={() => onApprove([contractNumber])}
+            disabled={!canApprove || bulkApproving}
+            loading={bulkApproving}
+            size="lg"
+          >
+            Approve Contract
+          </Button>
+        </div>
+      )}
+      {!canApprove && statusInfo.description && (
+        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-sm text-gray-600 dark:text-gray-400">
+          {statusInfo.description}
+        </div>
+      )}
     </div>
   );
 }
@@ -370,8 +493,12 @@ function BulkContractsTable({ contracts, onApproveSelected, bulkApproving }) {
             const contractNumber = contract.identifier?.contractNumber;
             const secondsLeft = contractTimers[contractNumber] || 0;
             const isExpired = secondsLeft <= 0;
-            const isApproved = contract.status === "Approved" || contract.status === "ContractConfirmed";
-            const canApprove = !isExpired && !isApproved;
+            const statusInfo = getContractStatusInfo(contract.status);
+            const isApproved =
+              contract.status === "Approved" ||
+              contract.status === "ContractConfirmed" ||
+              contract.status === "Completed";
+            const canApprove = !isExpired && statusInfo.canApprove && contract.quoteStatus === "Valid";
 
             return (
               <tr key={contractNumber} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -429,27 +556,29 @@ function BulkContractsTable({ contracts, onApproveSelected, bulkApproving }) {
                 </td>
                 <td className="px-6 py-4">
                   <span
-                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                      isApproved
-                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                        : isExpired
-                        ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                    }`}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.color}`}
+                    title={statusInfo.description}
                   >
-                    {contract.status || "Unknown"}
+                    <span>{statusInfo.icon}</span>
+                    <span>{contract.status || "Unknown"}</span>
                   </span>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => onApproveSelected([contractNumber])}
-                    disabled={!canApprove || bulkApproving}
-                    loading={bulkApproving}
-                  >
-                    Approve
-                  </Button>
+                  {canApprove ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => onApproveSelected([contractNumber])}
+                      disabled={!canApprove || bulkApproving}
+                      loading={bulkApproving}
+                    >
+                      Approve
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-gray-500 dark:text-gray-400" title={statusInfo.description}>
+                      {statusInfo.icon} {statusInfo.description || "Cannot approve"}
+                    </span>
+                  )}
                 </td>
               </tr>
             );
@@ -520,10 +649,25 @@ function ContractDetailsView({ contract, secondsLeft, error, approvingContract }
         </div>
         <div className="flex justify-between items-center">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</span>
-          <span className="text-sm font-medium px-2 py-1 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
-            {contract?.status || "Unknown"}
-          </span>
+          {(() => {
+            const statusInfo = getContractStatusInfo(contract?.status);
+            return (
+              <span
+                className={`inline-flex items-center gap-1 text-sm font-medium px-2 py-1 rounded-full ${statusInfo.color}`}
+                title={statusInfo.description}
+              >
+                <span>{statusInfo.icon}</span>
+                <span>{contract?.status || "Unknown"}</span>
+              </span>
+            );
+          })()}
         </div>
+        {(() => {
+          const statusInfo = getContractStatusInfo(contract?.status);
+          return statusInfo.description ? (
+            <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">{statusInfo.description}</div>
+          ) : null;
+        })()}
       </div>
 
       {/* Conversion Details */}
@@ -644,6 +788,7 @@ export default function XeRecipients() {
   const [bulkApproving, setBulkApproving] = useState(false);
   const [showBulkContracts, setShowBulkContracts] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState({ open: false });
+  const [settlementModal, setSettlementModal] = useState({ open: false, settlementOptions: [] });
 
   // Use ref to track contract number even if modal state resets
   const currentContractNumberRef = useRef(null);
@@ -857,9 +1002,10 @@ export default function XeRecipients() {
     console.log("🔴 Contract object:", contract);
     console.log("🔴 Contract status:", contract?.status);
 
-    // If contract is already approved, don't delete it - just close the modal
-    if (contract?.status === "Approved") {
-      console.log("✅ Contract is approved, closing modal without deletion");
+    // If contract is already approved or completed, don't delete it - just close the modal
+    const contractStatus = contract?.status;
+    if (contractStatus === "Approved" || contractStatus === "ContractConfirmed" || contractStatus === "Completed") {
+      console.log("✅ Contract is approved/completed, closing modal without deletion");
       setAmountModal({ open: false, recipient: null, contract: null });
       currentContractNumberRef.current = null; // Clear ref
       isContractApprovedRef.current = false; // Reset approval ref
@@ -946,6 +1092,29 @@ export default function XeRecipients() {
           hasFxDetails: !!contract?.quote?.fxDetails,
           fxDetailsLength: contract?.quote?.fxDetails?.length,
         });
+
+        // Check if settlement method is not available
+        if (contract.status === "SettlementMethodNotAvailable" && contract.settlementOptions) {
+          const unavailableOptions = contract.settlementOptions.filter((opt) => !opt.isAvailable);
+          if (unavailableOptions.length > 0) {
+            // Delete the contract automatically
+            const contractNumber = contract?.identifier?.contractNumber || contract?.contractNumber;
+            if (contractNumber) {
+              try {
+                await deleteContractSilently(contractNumber);
+                console.log("✅ Contract deleted due to settlement method unavailability:", contractNumber);
+                showToast("Contract cancelled due to settlement method unavailability", "warning", 5000);
+              } catch (err) {
+                console.error("❌ Error deleting contract:", err);
+                showToast("Failed to cancel contract. Please cancel it manually.", "error", 6000);
+              }
+            }
+            setSettlementModal({ open: true, settlementOptions: unavailableOptions, contract });
+            setCreatingContract(false);
+            return;
+          }
+        }
+
         // Keep modal open but show contract details
         setAmountModal({ ...amountModal, contract });
         // Store contract number in ref for tab visibility handler
@@ -983,10 +1152,12 @@ export default function XeRecipients() {
     }
 
     // Reset approval ref when contract changes
-    isContractApprovedRef.current = amountModal.contract.status === "Approved";
+    const contractStatus = amountModal.contract.status;
+    isContractApprovedRef.current =
+      contractStatus === "Approved" || contractStatus === "ContractConfirmed" || contractStatus === "Completed";
 
-    // Stop timer if contract is already approved
-    if (amountModal.contract.status === "Approved") {
+    // Stop timer if contract is already approved or completed
+    if (contractStatus === "Approved" || contractStatus === "ContractConfirmed" || contractStatus === "Completed") {
       setSecondsLeft(0);
       isContractApprovedRef.current = true;
       return;
@@ -1096,7 +1267,7 @@ export default function XeRecipients() {
       setSecondsLeft(0);
 
       // Update contract status in modal state
-      const updatedContract = { ...contract, status: "Approved", approvedAt: new Date() };
+      const updatedContract = { ...contract, status: "ContractConfirmed", approvedAt: new Date() };
       setAmountModal({ ...amountModal, contract: updatedContract });
 
       // Close modal after a brief delay to show the success message
@@ -1216,6 +1387,29 @@ export default function XeRecipients() {
           contractNumber: contractNumber,
           fullContract: contract,
         });
+
+        // Check if settlement method is not available
+        if (contract.status === "SettlementMethodNotAvailable" && contract.settlementOptions) {
+          const unavailableOptions = contract.settlementOptions.filter((opt) => !opt.isAvailable);
+          if (unavailableOptions.length > 0) {
+            // Delete the contract automatically
+            const contractNumber = contract?.identifier?.contractNumber || contract?.contractNumber;
+            if (contractNumber) {
+              try {
+                await deleteContractSilently(contractNumber);
+                console.log("✅ Bulk contract deleted due to settlement method unavailability:", contractNumber);
+                showToast("Contract cancelled due to settlement method unavailability", "warning", 5000);
+              } catch (err) {
+                console.error("❌ Error deleting bulk contract:", err);
+                showToast("Failed to cancel contract. Please cancel it manually.", "error", 6000);
+              }
+            }
+            setSettlementModal({ open: true, settlementOptions: unavailableOptions, contract });
+            setCreatingBatchId(null);
+            return;
+          }
+        }
+
         // Store contract number in ref for tab visibility handler
         currentContractNumberRef.current = contractNumber;
         console.log("✅ Bulk contract number stored in ref:", currentContractNumberRef.current);
@@ -1266,7 +1460,7 @@ export default function XeRecipients() {
     setBulkContracts((prev) =>
       prev.map((c) => {
         if (results.success.includes(c.identifier?.contractNumber)) {
-          return { ...c, status: "Approved", approvedAt: new Date() };
+          return { ...c, status: "ContractConfirmed", approvedAt: new Date() };
         }
         return c;
       })
@@ -1296,8 +1490,9 @@ export default function XeRecipients() {
         const expires = c.quote?.expires ? new Date(c.quote.expires) : null;
         const now = new Date();
         const isExpired = expires && expires < now;
-        const isApproved = c.status === "Approved" || c.status === "ContractConfirmed";
-        return !isExpired && !isApproved && c.identifier?.contractNumber;
+        const statusInfo = getContractStatusInfo(c.status);
+        const isApproved = c.status === "Approved" || c.status === "ContractConfirmed" || c.status === "Completed";
+        return !isExpired && !isApproved && statusInfo.canApprove && c.identifier?.contractNumber;
       })
       .map((c) => c.identifier.contractNumber);
 
@@ -1584,7 +1779,16 @@ export default function XeRecipients() {
             const contractNumber =
               contract?.identifier?.contractNumber || contract?.contractNumber || currentContractNumberRef.current;
 
-            if (contractNumber) {
+            // Check if contract can be cancelled
+            const contractStatus = contract?.status;
+            const statusInfo = getContractStatusInfo(contractStatus);
+            const isFinalStatus =
+              contractStatus === "Approved" ||
+              contractStatus === "ContractConfirmed" ||
+              contractStatus === "Completed" ||
+              contractStatus === "Cancelled";
+
+            if (contractNumber && !isFinalStatus && statusInfo.canCancel) {
               console.log("✅ Deleting bulk contract on modal close:", contractNumber);
               setCancellingContract(true);
               try {
@@ -1602,7 +1806,7 @@ export default function XeRecipients() {
               }
             }
 
-            // If no contract or deletion failed, just close
+            // If no contract, deletion failed, or contract is in final status, just close
             setBulkContracts([]);
             setShowBulkContracts(false);
             currentContractNumberRef.current = null;
@@ -1627,7 +1831,16 @@ export default function XeRecipients() {
                     contract?.contractNumber ||
                     currentContractNumberRef.current;
 
-                  if (contractNumber) {
+                  // Check if contract can be cancelled
+                  const contractStatus = contract?.status;
+                  const statusInfo = getContractStatusInfo(contractStatus);
+                  const isFinalStatus =
+                    contractStatus === "Approved" ||
+                    contractStatus === "ContractConfirmed" ||
+                    contractStatus === "Completed" ||
+                    contractStatus === "Cancelled";
+
+                  if (contractNumber && !isFinalStatus && statusInfo.canCancel) {
                     console.log("✅ Deleting bulk contract on Close button:", contractNumber);
                     setCancellingContract(true);
                     try {
@@ -1645,7 +1858,7 @@ export default function XeRecipients() {
                     }
                   }
 
-                  // If no contract or deletion failed, just close
+                  // If no contract, deletion failed, or contract is in final status, just close
                   setBulkContracts([]);
                   setShowBulkContracts(false);
                   currentContractNumberRef.current = null;
@@ -1686,24 +1899,44 @@ export default function XeRecipients() {
         size="lg"
         footer={
           amountModal.contract ? (
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={handleCancelContract}
-                disabled={approvingContract || cancellingContract}
-                loading={cancellingContract}
-              >
-                Cancel Contract
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleApproveContract}
-                loading={approvingContract}
-                disabled={approvingContract || cancellingContract || secondsLeft <= 0}
-              >
-                Approve Contract
-              </Button>
-            </div>
+            (() => {
+              const contractStatus = amountModal.contract?.status;
+              const statusInfo = getContractStatusInfo(contractStatus);
+              const isExpired = secondsLeft <= 0;
+              const canApprove = !isExpired && statusInfo.canApprove && amountModal.contract.quoteStatus === "Valid";
+              const canCancel =
+                statusInfo.canCancel && contractStatus !== "Cancelled" && contractStatus !== "Completed";
+
+              return (
+                <div className="flex justify-end gap-3">
+                  {canCancel && (
+                    <Button
+                      variant="outline"
+                      onClick={handleCancelContract}
+                      disabled={approvingContract || cancellingContract}
+                      loading={cancellingContract}
+                    >
+                      Cancel Contract
+                    </Button>
+                  )}
+                  {canApprove && (
+                    <Button
+                      variant="primary"
+                      onClick={handleApproveContract}
+                      loading={approvingContract}
+                      disabled={approvingContract || cancellingContract || secondsLeft <= 0}
+                    >
+                      Approve Contract
+                    </Button>
+                  )}
+                  {!canApprove && !canCancel && (
+                    <div className="text-sm text-gray-600 dark:text-gray-400 px-3 py-2">
+                      {statusInfo.description || "No actions available for this contract status"}
+                    </div>
+                  )}
+                </div>
+              );
+            })()
           ) : (
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={handleAmountCancel} disabled={creatingContract}>
@@ -1787,6 +2020,84 @@ export default function XeRecipients() {
             {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
           </div>
         )}
+      </Modal>
+
+      {/* Settlement Method Unavailable Modal */}
+      <Modal
+        isOpen={settlementModal.open}
+        onClose={async () => {
+          // Contract is already deleted when modal was opened, just close the modal
+          setSettlementModal({ open: false, settlementOptions: [] });
+          // Close the amount modal if it's open
+          if (amountModal.open) {
+            setAmountModal({ open: false, recipient: null, contract: null });
+            setContractAmount("");
+          }
+        }}
+        title="Settlement Method Not Available"
+        size="md"
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                // Contract is already deleted, just close the modal
+                setSettlementModal({ open: false, settlementOptions: [] });
+                // Close the amount modal if it's open
+                if (amountModal.open) {
+                  setAmountModal({ open: false, recipient: null, contract: null });
+                  setContractAmount("");
+                }
+              }}
+            >
+              Close
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              The contract was created, but the requested settlement method is not available at this time. The contract
+              has been automatically cancelled. Please review the reasons below:
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {settlementModal.settlementOptions?.map((option, index) => (
+              <div
+                key={index}
+                className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <ExclamationTriangleIcon className="w-5 h-5 text-red-600 dark:text-red-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-red-900 dark:text-red-200 mb-1">
+                      {option.displayName || option.method}
+                    </h4>
+                    <p className="text-sm text-red-800 dark:text-red-300 mb-2">{option.unAvailableReason}</p>
+                    {option.unAvailableReasonCode && (
+                      <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                        Code: {option.unAvailableReasonCode}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {settlementModal.contract?.identifier?.contractNumber && (
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-sm">
+              <p className="text-gray-700 dark:text-gray-300">
+                <span className="font-medium">Contract Number:</span>{" "}
+                <span className="font-mono">{settlementModal.contract.identifier.contractNumber}</span>
+              </p>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

@@ -1,12 +1,12 @@
 import React, { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { parseXeWorkbook, createXeRecipients } from "../services/xeService";
+import { parseXeWorkbook, createXeRecipients, generateErrorHighlightedExcel } from "../services/xeService";
 import Card from "./ui/Card";
 import Button from "./ui/Button";
 import Table from "./ui/Table";
 import Alert from "./ui/Alert";
 import { Spinner } from "./ui/Loading";
-import { CheckCircleIcon } from "@heroicons/react/24/outline";
+import { CheckCircleIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 
 function XeExcelExtractor() {
   const [file, setFile] = useState(null);
@@ -15,6 +15,9 @@ function XeExcelExtractor() {
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState(null);
+  const [progressMessage, setProgressMessage] = useState("");
+  const [processedCount, setProcessedCount] = useState(0);
+  const [totalRows, setTotalRows] = useState(0);
 
   const onDrop = useCallback(async (acceptedFiles) => {
     const file = acceptedFiles[0];
@@ -87,6 +90,11 @@ function XeExcelExtractor() {
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                   Create XE recipients from all rows in the uploaded workbook
                 </p>
+                {creating && progressMessage && (
+                  <p className="text-sm font-medium text-primary-600 dark:text-primary-400 mt-2">
+                    {progressMessage}
+                  </p>
+                )}
               </div>
               <Button
                 variant="primary"
@@ -95,6 +103,9 @@ function XeExcelExtractor() {
                   setCreating(true);
                   setError(null);
                   setCreateResult(null);
+                  setProgressMessage("");
+                  setProcessedCount(0);
+                  setTotalRows(0);
 
                   try {
                     const sheetRows = result.sheets.map((sheet) => ({
@@ -102,12 +113,29 @@ function XeExcelExtractor() {
                       rows: sheet.rows,
                       inferredCountry: sheet.inferredCountry,
                       inferredCurrency: sheet.inferredCurrency,
+                      headers: sheet.headers,
                     }));
 
-                    const response = await createXeRecipients(sheetRows);
+                    // Count total rows
+                    const total = sheetRows.reduce((sum, sheet) => sum + (sheet.rows?.length || 0), 0);
+                    setTotalRows(total);
+
+                    // Use SSE for progress updates
+                    const response = await createXeRecipients(
+                      sheetRows,
+                      null,
+                      true, // useSSE
+                      (progressData) => {
+                        // Update progress in real-time
+                        setProcessedCount(progressData.processed || 0);
+                        setProgressMessage(progressData.message || "");
+                      }
+                    );
                     setCreateResult(response.data);
+                    setProgressMessage("");
                   } catch (err) {
                     setError(err.message || "Failed to create recipients");
+                    setProgressMessage("");
                   } finally {
                     setCreating(false);
                   }
@@ -115,7 +143,9 @@ function XeExcelExtractor() {
                 disabled={creating || loading}
                 icon={creating ? <Spinner size="sm" /> : <CheckCircleIcon className="w-5 h-5" />}
               >
-                {creating ? "Creating Recipients..." : "Create XE Recipients"}
+                {creating
+                  ? `Creating... (${processedCount}/${totalRows})`
+                  : "Create XE Recipients"}
               </Button>
             </div>
           </Card>
@@ -133,6 +163,32 @@ function XeExcelExtractor() {
                   <p>
                     Batch ID: <span className="font-mono text-xs">{createResult.batchId}</span>
                   </p>
+                )}
+                {createResult.failureCount > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const sheetRows = result.sheets.map((sheet) => ({
+                            sheetName: sheet.sheetName,
+                            rows: sheet.rows,
+                            headers: sheet.headers,
+                          }));
+                          await generateErrorHighlightedExcel(sheetRows, createResult.results || []);
+                        } catch (err) {
+                          setError(err.message || "Failed to generate Excel file");
+                        }
+                      }}
+                      icon={<ArrowDownTrayIcon className="w-4 h-4" />}
+                    >
+                      Download Excel with Error Highlighting
+                    </Button>
+                    <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                      Rows with errors will be highlighted in <span className="font-semibold text-red-600">red background</span> in the downloaded Excel file.
+                    </p>
+                  </div>
                 )}
               </div>
             </Alert>

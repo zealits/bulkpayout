@@ -140,11 +140,17 @@ function transformRowToXeRecipient(row, sheetInfo = {}) {
   };
 }
 
+// Helper function to send SSE message
+const sendSSE = (res, event, data) => {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+};
+
 // @desc    Create XE recipients from uploaded Excel data
 // @route   POST /api/xe/create-recipients
 // @access  Public
 const createXeRecipients = asyncHandler(async (req, res) => {
-  const { sheetRows, batchId, environment } = req.body; // Array of { sheetName, rows, inferredCountry, inferredCurrency }
+  const { sheetRows, batchId, environment, useSSE } = req.body; // Array of { sheetName, rows, inferredCountry, inferredCurrency }
   
   // Validate environment, default to sandbox
   const env = environment === "production" ? "production" : "sandbox";
@@ -153,8 +159,29 @@ const createXeRecipients = asyncHandler(async (req, res) => {
     return errorResponse(res, "sheetRows array is required", 400);
   }
 
+  // Check if client wants SSE (Server-Sent Events) for progress updates
+  if (useSSE) {
+    // Set SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+
+    // Send initial connection message
+    sendSSE(res, "connected", { message: "Connected to recipient creation stream" });
+  }
+
   const results = [];
   const errors = [];
+  let totalRows = 0;
+  let processedCount = 0;
+
+  // Count total rows first
+  for (const sheetInfo of sheetRows) {
+    if (Array.isArray(sheetInfo.rows)) {
+      totalRows += sheetInfo.rows.length;
+    }
+  }
 
   // Generate a batch id if not supplied by caller
   const makeBatchId = () => {
@@ -173,6 +200,10 @@ const createXeRecipients = asyncHandler(async (req, res) => {
   };
 
   const effectiveBatchId = batchId || makeBatchId();
+
+  if (useSSE) {
+    sendSSE(res, "start", { totalRows, batchId: effectiveBatchId });
+  }
 
   for (const sheetInfo of sheetRows) {
     const { sheetName, rows, inferredCountry, inferredCurrency } = sheetInfo;
@@ -212,6 +243,8 @@ const createXeRecipients = asyncHandler(async (req, res) => {
         // console.log("📦 apiResult:", apiResult);
         // console.log("📄 apiResult.data:", apiResult?.data);
 
+        processedCount++;
+
         if (apiResult.success && apiResult.statusCode === 200 && apiResult.data) {
           // Persist only the successful response fields
           // Shape expected by schema: { payoutMethod, entity, recipientId, currency, amount }
@@ -229,7 +262,7 @@ const createXeRecipients = asyncHandler(async (req, res) => {
           const xeRecipient = new XeRecipient(toSave);
           await xeRecipient.save();
 
-          results.push({
+          const result = {
             clientReference: apiResult.data?.recipientId?.clientReference || clientReference,
             xeRecipientId: apiResult.data?.recipientId?.xeRecipientId,
             status: "created",
@@ -237,11 +270,23 @@ const createXeRecipients = asyncHandler(async (req, res) => {
             rowNumber: row._rowNumber,
             success: true,
             batchId: effectiveBatchId,
-          });
+          };
+          results.push(result);
+
+          // Send progress update via SSE
+          if (useSSE) {
+            sendSSE(res, "progress", {
+              processed: processedCount,
+              total: totalRows,
+              message: `${processedCount} recipient${processedCount !== 1 ? "s" : ""} created`,
+              success: true,
+              result,
+            });
+          }
         } else {
           console.log("❌ Recipient creation failed: ", apiResult?.error || apiResult?.details);
           // Do not store failures
-          results.push({
+          const result = {
             clientReference,
             xeRecipientId: undefined,
             status: "failed",
@@ -251,10 +296,23 @@ const createXeRecipients = asyncHandler(async (req, res) => {
             error: apiResult.error,
             errorDetails: apiResult.details,
             batchId: effectiveBatchId,
-          });
+          };
+          results.push(result);
+
+          // Send progress update via SSE
+          if (useSSE) {
+            sendSSE(res, "progress", {
+              processed: processedCount,
+              total: totalRows,
+              message: `${processedCount} recipient${processedCount !== 1 ? "s" : ""} processed`,
+              success: false,
+              result,
+            });
+          }
         }
       } catch (error) {
         console.error("Error creating recipient for row:", error);
+        processedCount++;
 
         // Format mongoose validation errors if present
         let formattedErrors = [];
@@ -270,12 +328,24 @@ const createXeRecipients = asyncHandler(async (req, res) => {
           });
         }
 
-        errors.push({
+        const errorObj = {
           sheetName,
           rowNumber: row._rowNumber,
           error: error.message,
           validationErrors: formattedErrors.length ? formattedErrors : undefined,
-        });
+        };
+        errors.push(errorObj);
+
+        // Send progress update via SSE
+        if (useSSE) {
+          sendSSE(res, "progress", {
+            processed: processedCount,
+            total: totalRows,
+            message: `${processedCount} recipient${processedCount !== 1 ? "s" : ""} processed`,
+            success: false,
+            error: errorObj,
+          });
+        }
       }
     }
   }
@@ -283,6 +353,21 @@ const createXeRecipients = asyncHandler(async (req, res) => {
   const successCount = results.filter((r) => r.success && r.status === "created").length;
   const failureCount = results.length - successCount;
 
+  // If using SSE, send final result and close connection
+  if (useSSE) {
+    sendSSE(res, "complete", {
+      totalProcessed: results.length,
+      successCount,
+      failureCount,
+      results,
+      errors,
+      batchId: effectiveBatchId,
+    });
+    res.end();
+    return;
+  }
+
+  // Normal response for non-SSE requests
   return successResponse(
     res,
     {
@@ -406,6 +491,111 @@ module.exports = {
       batches: totalBatches, // Total number of batches
     });
   }),
+  // Generate Excel file with error rows highlighted in red
+  generateErrorHighlightedExcel: asyncHandler(async (req, res) => {
+    const { sheetRows, results } = req.body;
+
+    if (!Array.isArray(sheetRows) || sheetRows.length === 0) {
+      return errorResponse(res, "sheetRows array is required", 400);
+    }
+
+    if (!Array.isArray(results)) {
+      return errorResponse(res, "results array is required", 400);
+    }
+
+    try {
+      const ExcelJS = require("exceljs");
+      const workbook = new ExcelJS.Workbook();
+
+      // Create a map of failed rows for quick lookup
+      const failedRowsMap = new Map();
+      results.forEach((result) => {
+        if (!result.success || result.status === "failed") {
+          const key = `${result.sheetName || ""}_${result.rowNumber || ""}`;
+          failedRowsMap.set(key, result);
+        }
+      });
+
+      // Process each sheet
+      for (const sheetInfo of sheetRows) {
+        const { sheetName, rows, headers } = sheetInfo;
+
+        if (!Array.isArray(rows) || rows.length === 0) continue;
+
+        const worksheet = workbook.addWorksheet(sheetName);
+
+        // Add headers
+        if (headers && headers.length > 0) {
+          worksheet.addRow(headers);
+          // Style header row
+          const headerRow = worksheet.getRow(1);
+          headerRow.font = { bold: true };
+          headerRow.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFE0E0E0" },
+          };
+        }
+
+        // Add data rows
+        rows.forEach((row, idx) => {
+          const rowNumber = row._rowNumber || idx + 2; // Excel row number (1-indexed, +1 for header)
+          const key = `${sheetName}_${rowNumber}`;
+          const isErrorRow = failedRowsMap.has(key);
+
+          // Convert row object to array based on headers
+          const rowData = headers
+            ? headers.map((header) => {
+                const normalizedKey = header
+                  .toLowerCase()
+                  .replace(/\*/g, "")
+                  .replace(/\s*\(.*?\)\s*/g, "")
+                  .replace(/[^a-z0-9]+/g, "_")
+                  .replace(/^_+|_+$/g, "");
+                return row[normalizedKey] ?? row[header] ?? "";
+              })
+            : Object.values(row).filter((val) => val !== row._rowNumber);
+
+          const excelRow = worksheet.addRow(rowData);
+
+          // Highlight error rows with red background
+          if (isErrorRow) {
+            excelRow.fill = {
+              type: "pattern",
+              pattern: "solid",
+              fgColor: { argb: "FFFF0000" }, // Red background
+            };
+            excelRow.font = { color: { argb: "FFFFFFFF" } }; // White text for contrast
+          }
+        });
+
+        // Auto-fit columns
+        worksheet.columns.forEach((column) => {
+          if (column && column.header) {
+            column.width = Math.max(column.header.length + 2, 15);
+          }
+        });
+      }
+
+      // Generate buffer
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      // Set headers for file download
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="XE_Recipients_With_Errors_${Date.now()}.xlsx"`
+      );
+
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating error-highlighted Excel:", error);
+      return errorResponse(res, "Failed to generate Excel file", 500, {
+        message: error.message,
+      });
+    }
+  }),
+
   // Delete a recipient from XE and our DB
   deleteXeRecipient: asyncHandler(async (req, res) => {
     const { xeRecipientId } = req.params;

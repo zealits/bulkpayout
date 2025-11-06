@@ -201,11 +201,124 @@ export const generateXeTemplateBulk = async (selections) => {
   }
 };
 
-// Create XE recipients from parsed workbook data
-export const createXeRecipients = async (sheetRows, batchId = null) => {
+// Create XE recipients from parsed workbook data (with SSE support)
+export const createXeRecipients = async (sheetRows, batchId = null, useSSE = false, onProgress = null) => {
   try {
-    const response = await api.post("/xe/create-recipients", { sheetRows, batchId });
-    return response;
+    if (useSSE && onProgress) {
+      // Use Server-Sent Events for progress updates
+      const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+      const token = localStorage.getItem("token");
+
+      return new Promise((resolve, reject) => {
+        // For POST with SSE, we need to use fetch with POST and stream
+        const controller = new AbortController();
+        fetch(`${baseURL}/xe/create-recipients`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ sheetRows, batchId, useSSE: true }),
+          signal: controller.signal,
+        })
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const chunks = buffer.split("\n\n");
+              buffer = chunks.pop() || "";
+
+              for (const chunk of chunks) {
+                if (chunk.trim() === "") continue;
+
+                let event = "message";
+                let data = null;
+
+                const lines = chunk.split("\n");
+                for (const line of lines) {
+                  if (line.startsWith("event: ")) {
+                    event = line.substring(7).trim();
+                  } else if (line.startsWith("data: ")) {
+                    try {
+                      data = JSON.parse(line.substring(6));
+                    } catch (e) {
+                      console.error("Failed to parse SSE data:", e);
+                    }
+                  }
+                }
+
+                if (data !== null) {
+                  if (event === "progress" && onProgress) {
+                    onProgress(data);
+                  } else if (event === "complete") {
+                    resolve({ data });
+                    controller.abort();
+                    return;
+                  } else if (event === "error") {
+                    reject(new Error(data.message || "Error occurred"));
+                    controller.abort();
+                    return;
+                  }
+                }
+              }
+            }
+          })
+          .catch((error) => {
+            if (error.name !== "AbortError") {
+              reject(error);
+            }
+          });
+      });
+    } else {
+      // Normal request without SSE
+      const response = await api.post("/xe/create-recipients", { sheetRows, batchId, useSSE: false });
+      return response;
+    }
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Generate Excel file with error rows highlighted
+export const generateErrorHighlightedExcel = async (sheetRows, results) => {
+  try {
+    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    const token = localStorage.getItem("token");
+    const headers = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await axios.post(
+      `${baseURL}/xe/generate-error-excel`,
+      { sheetRows, results },
+      {
+        responseType: "blob",
+        headers,
+      }
+    );
+
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `XE_Recipients_With_Errors_${Date.now()}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+
+    return { success: true };
   } catch (error) {
     throw error;
   }

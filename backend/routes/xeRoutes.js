@@ -19,7 +19,7 @@ const {
   getXeContractsByRecipient,
   getAllXeContracts,
 } = require("../controllers/xeController");
-const { createXeRecipients, listXeRecipients, deleteXeRecipient } = require("../controllers/xeRecipientController");
+const { createXeRecipients, listXeRecipients, deleteXeRecipient, generateErrorHighlightedExcel } = require("../controllers/xeRecipientController");
 const { protect, authorize } = require("../middleware/auth");
 const multer = require("multer");
 
@@ -71,6 +71,9 @@ router.post("/parse-template", upload.single("file"), parseXeTemplate);
 
 // Create XE recipients from parsed Excel data
 router.post("/create-recipients", createXeRecipients);
+
+// Generate Excel file with error rows highlighted
+router.post("/generate-error-excel", generateErrorHighlightedExcel);
 
 // Create XE contract
 router.post("/contracts", createXeContract);

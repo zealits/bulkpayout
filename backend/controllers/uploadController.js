@@ -104,7 +104,8 @@ const validateExcel = asyncHandler(async (req, res) => {
   const response = {
     filename: originalname,
     validationReport,
-    preview: validationResult.validPayments.slice(0, 10), // First 10 valid payments for preview
+    // Send all parsed rows so frontend can highlight invalid ones
+    preview: parseResult.data,
   };
 
   if (validationReport.isValid) {
@@ -123,7 +124,7 @@ const getUploadTemplate = asyncHandler(async (req, res) => {
     headers: ["name", "email", "amount", "notes", "currency"],
     sampleData: [
       {
-        name: "John Doe",
+        name: "John Radulescu",
         email: "john@example.com",
         amount: 150.0,
         notes: "Freelance work payment",

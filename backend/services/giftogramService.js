@@ -216,9 +216,17 @@ class GiftogramService {
       };
     } catch (error) {
       console.error("Error creating Giftogram order:", error);
+
+      // Prefer Giftogram's own error message when available
+      const apiMessage =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.response?.data?.details ||
+        null;
+
       return {
         success: false,
-        error: error.message,
+        error: apiMessage || error.message,
         data: null,
         details: error.response?.data,
       };
@@ -259,9 +267,16 @@ class GiftogramService {
             };
           } catch (error) {
             console.error(`Failed to create gift card for ${order.recipientEmail}:`, error);
+
+            const apiMessage =
+              error.response?.data?.message ||
+              error.response?.data?.error ||
+              error.response?.data?.details ||
+              null;
+
             return {
               success: false,
-              error: error.message,
+              error: apiMessage || error.message,
               email: order.recipientEmail,
               name: order.recipientName,
               amount: order.amount,

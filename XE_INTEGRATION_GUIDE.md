@@ -11,7 +11,6 @@ The XE integration allows you to process international bank transfers through XE
 ### Backend Components
 
 1. **XE Service** (`backend/services/xeService.js`)
-
    - Authentication with XE API using access key and secret
    - Token management with automatic renewal
    - Account retrieval
@@ -20,7 +19,6 @@ The XE integration allows you to process international bank transfers through XE
    - Payment status checking
 
 2. **XE Controller** (`backend/controllers/xeController.js`)
-
    - RESTful API endpoints for XE operations
    - Batch processing for bulk payments
    - Error handling and validation
@@ -38,18 +36,15 @@ The XE integration allows you to process international bank transfers through XE
 ### Frontend Components
 
 1. **XE Service** (`frontend/src/services/xeService.js`)
-
    - Frontend API client for XE operations
    - Error handling and response processing
 
 2. **Payment Method Selector** (Updated)
-
    - XE Bank Transfer option added
    - Account selection interface
    - Configuration validation
 
 3. **Bank Details Form** (`frontend/src/components/BankDetailsForm.jsx`)
-
    - Country and currency selection
    - Dynamic form generation based on payment fields
    - Validation and submission
@@ -65,7 +60,6 @@ The XE integration allows you to process international bank transfers through XE
 ### Database Updates
 
 1. **Payment Model** - Added XE-specific fields:
-
    - `xeRecipientId` - XE recipient identifier
    - `xePaymentId` - XE payment identifier
    - `xeAccountNumber` - Selected XE account
@@ -143,7 +137,7 @@ The XE service automatically handles authentication using the configured access 
    POST /api/xe/recipients
    {
      "email": "recipient@example.com",
-     "name": "John Doe",
+     "name": "John Radulesu",
      "bankDetails": { ... },
      "country": "US",
      "currency": "USD"

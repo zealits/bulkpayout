@@ -23,6 +23,21 @@ import Input from "./ui/Input";
 import Badge from "./ui/Badge";
 import Modal from "./ui/Modal";
 import { LoadingOverlay, Spinner } from "./ui/Loading";
+import * as XLSX from "xlsx";
+
+// Excel sheet names have a 31-character limit and disallow certain characters.
+// This helper makes sure our per-batch sheet names are valid and reasonably unique.
+const makeSheetName = (batchId, index) => {
+  if (!batchId) {
+    return `Batch_${index + 1}`;
+  }
+  let cleaned = String(batchId).replace(/[\\/*?:\[\]]/g, " ");
+  cleaned = cleaned.trim() || `Batch_${index + 1}`;
+  if (cleaned.length > 25) {
+    cleaned = cleaned.slice(0, 25);
+  }
+  return `${cleaned}_${index + 1}`;
+};
 
 function PaymentHistory({ method = "paypal" }) {
   const { environment } = useEnvironment();
@@ -192,8 +207,14 @@ function PaymentHistory({ method = "paypal" }) {
     return matchesSearch && matchesStatus;
   });
 
-  const getTotalAmount = () => {
-    return stats?.batchStats?.totalAmount || 0;
+  const getDefaultCurrency = () => {
+    return filteredData[0]?.currency || "USD";
+  };
+
+  const formatAmountWithCurrency = (amount = 0, currency) => {
+    const code = currency || getDefaultCurrency();
+    const numeric = typeof amount === "number" ? amount : parseFloat(amount || 0);
+    return `${numeric.toFixed(2)} ${code}`;
   };
 
   const getStatusCounts = () => {
@@ -235,6 +256,185 @@ function PaymentHistory({ method = "paypal" }) {
   const totalPages = Math.ceil(filteredData.length / rowsPerPage);
   const paginatedData = filteredData.slice(page * rowsPerPage, (page + 1) * rowsPerPage);
 
+  const handleExport = async () => {
+    if (!filteredData || filteredData.length === 0) {
+      return;
+    }
+
+    // For PayPal and other methods, keep the existing simple CSV export
+    if (method !== "giftogram") {
+      const headers = [
+        "Status",
+        "Batch ID",
+        "Payment Method",
+        "Currency",
+        "Total Amount",
+        "Total Payments",
+        "Uploaded At",
+        "PayPal / Provider Status",
+        "Error Message",
+      ];
+
+      const rows = filteredData.map((batch) => [
+        batch.status || "",
+        batch.batchId || "",
+        batch.paymentMethod || "",
+        batch.currency || "",
+        batch.totalAmount ?? "",
+        batch.totalPayments ?? "",
+        batch.uploadedAt ? new Date(batch.uploadedAt).toISOString() : "",
+        batch.paypalBatchStatus || batch.providerStatus || "",
+        (batch.errorMessage || "").replace(/[\r\n]+/g, " "),
+      ]);
+
+      const csvContent =
+        [headers, ...rows]
+          .map((row) =>
+            row
+              .map((value) => {
+                const str = String(value ?? "");
+                // Escape commas, quotes, and newlines
+                if (/[",\r\n]/.test(str)) {
+                  return `"${str.replace(/"/g, '""')}"`;
+                }
+                return str;
+              })
+              .join(",")
+          )
+          .join("\r\n");
+
+      const csvBlob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const csvUrl = window.URL.createObjectURL(csvBlob);
+      const csvLink = document.createElement("a");
+      const csvTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const csvMethodLabel = method || "payments";
+      csvLink.href = csvUrl;
+      csvLink.setAttribute("download", `payment-history-${csvMethodLabel}-${csvTimestamp}.csv`);
+      document.body.appendChild(csvLink);
+      csvLink.click();
+      document.body.removeChild(csvLink);
+      window.URL.revokeObjectURL(csvUrl);
+      return;
+    }
+
+    // For Giftogram (gift cards), create an Excel workbook with:
+    // - Summary sheet (payment history)
+    // - One sheet per batch containing that batch's recipient details.
+    const workbook = XLSX.utils.book_new();
+
+    const summaryHeaders = [
+      "Status",
+      "Batch ID",
+      "Payment Method",
+      "Currency",
+      "Total Amount",
+      "Total Payments",
+      "Uploaded At",
+      "Provider Status",
+      "Error Message",
+    ];
+
+    const summaryRows = [];
+    const sheetNameMap = new Map();
+
+    // First, build summary rows and remember target sheet names for each batch
+    filteredData.forEach((batch, index) => {
+      const sheetName = makeSheetName(batch.batchId, index);
+      sheetNameMap.set(batch.batchId, sheetName);
+
+      summaryRows.push([
+        batch.status || "",
+        {
+          v: batch.batchId || "",
+          l: {
+            Target: `#'${sheetName}'!A1`,
+            Tooltip: "Click to view recipient details for this batch",
+          },
+        },
+        batch.paymentMethod || "",
+        batch.currency || "",
+        batch.totalAmount ?? "",
+        batch.totalPayments ?? "",
+        batch.uploadedAt ? new Date(batch.uploadedAt).toISOString() : "",
+        batch.providerStatus || "",
+        (batch.errorMessage || "").replace(/[\r\n]+/g, " "),
+      ]);
+    });
+
+    const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
+
+    // Style the Batch ID hyperlink cells in blue with underline so it's obvious they are clickable.
+    // Row index in the sheet is offset by +1 because row 0 is the header.
+    filteredData.forEach((_, index) => {
+      const cellRef = XLSX.utils.encode_cell({ r: index + 1, c: 1 }); // column 1 -> "Batch ID"
+      const cell = summarySheet[cellRef];
+      if (cell) {
+        summarySheet[cellRef] = {
+          ...cell,
+          s: {
+            ...(cell.s || {}),
+            font: {
+              color: { rgb: "0000FF" },
+              underline: true,
+            },
+          },
+        };
+      }
+    });
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+
+    // Then, for each batch, fetch its payments and build a dedicated sheet
+    for (let i = 0; i < filteredData.length; i++) {
+      const batch = filteredData[i];
+      const sheetName = sheetNameMap.get(batch.batchId) || makeSheetName(batch.batchId, i);
+
+      try {
+        const detailsResponse = await getPaymentBatch(batch.batchId);
+        const payments =
+          detailsResponse.success && detailsResponse.data?.payments ? detailsResponse.data.payments : [];
+
+        const batchHeaders = [
+          "Recipient Name",
+          "Recipient Email",
+          "Amount",
+          "Currency",
+          "Order ID",
+          "Status",
+          "Error Message",
+        ];
+
+        const batchRows = payments.map((payment) => [
+          payment.recipientName || "",
+          payment.recipientEmail || "",
+          payment.amount ?? "",
+          payment.currency || batch.currency || "",
+          payment.giftogramOrderId || "",
+          payment.status || "",
+          (payment.errorMessage || "").replace(/[\r\n]+/g, " "),
+        ]);
+
+        const batchSheet = XLSX.utils.aoa_to_sheet([batchHeaders, ...batchRows]);
+        XLSX.utils.book_append_sheet(workbook, batchSheet, sheetName);
+      } catch (error) {
+        console.error("Error fetching batch details for export:", error);
+      }
+    }
+
+    const workbookArray = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([workbookArray], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    link.href = url;
+    link.setAttribute("download", `payment-history-giftcards-${timestamp}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -273,7 +473,30 @@ function PaymentHistory({ method = "paypal" }) {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Amount</p>
-              <p className="text-2xl font-bold text-green-600">${getTotalAmount().toFixed(2)}</p>
+              <div className="text-2xl font-bold text-green-600 space-y-0.5">
+                {(() => {
+                  const totalsByCurrency = filteredData.reduce((acc, batch) => {
+                    const code = batch.currency || "USD";
+                    const amt =
+                      typeof batch.totalAmount === "number"
+                        ? batch.totalAmount
+                        : parseFloat(batch.totalAmount || 0);
+                    acc[code] = (acc[code] || 0) + (isNaN(amt) ? 0 : amt);
+                    return acc;
+                  }, {});
+
+                  const entries = Object.entries(totalsByCurrency);
+                  if (entries.length === 0) {
+                    return <div>0.00</div>;
+                  }
+
+                  return entries.map(([code, amt]) => (
+                    <div key={code}>
+                      {amt.toFixed(2)} {code}
+                    </div>
+                  ));
+                })()}
+              </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">total processed</p>
             </div>
           </div>
@@ -345,7 +568,13 @@ function PaymentHistory({ method = "paypal" }) {
           </div>
 
           <div className="flex space-x-2">
-            <Button variant="outline" icon={<ArrowDownTrayIcon className="w-4 h-4" />} className="flex-1">
+            <Button
+              variant="outline"
+              icon={<ArrowDownTrayIcon className="w-4 h-4" />}
+              className="flex-1"
+              onClick={handleExport}
+              disabled={filteredData.length === 0}
+            >
               Export
             </Button>
             <Button variant="outline" onClick={handleRefresh} icon={<ArrowPathIcon className="w-4 h-4" />}>
@@ -373,12 +602,25 @@ function PaymentHistory({ method = "paypal" }) {
               </Table.Header>
               <Table.Body>
                 {paginatedData.map((batch) => (
-                  <Table.Row key={batch.batchId}>
+                  <Table.Row
+                    key={batch.batchId}
+                    onClick={() => handleViewDetails(batch)}
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
                     <Table.Cell>
-                      <Badge variant={getStatusVariant(batch.status)}>{batch.status}</Badge>
+                      <div className="space-y-1">
+                        <Badge variant={getStatusVariant(batch.status)}>{batch.status}</Badge>
+                        {batch.status === "failed" && batch.errorMessage && (
+                          <div className="text-xs text-red-600 dark:text-red-400 max-w-xs">
+                            {batch.errorMessage}
+                          </div>
+                        )}
+                      </div>
                     </Table.Cell>
                     <Table.Cell>
-                      <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{batch.batchId}</code>
+                      <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {batch.batchId}
+                      </code>
                     </Table.Cell>
                     {method === "paypal" && (
                       <Table.Cell>
@@ -392,7 +634,9 @@ function PaymentHistory({ method = "paypal" }) {
                       </Table.Cell>
                     )}
                     <Table.Cell>
-                      <div className="font-semibold text-gray-900 dark:text-white">${batch.totalAmount.toFixed(2)}</div>
+                      <div className="font-semibold text-gray-900 dark:text-white">
+                        {formatAmountWithCurrency(batch.totalAmount, batch.currency)}
+                      </div>
                     </Table.Cell>
                     <Table.Cell>
                       <div className="text-gray-600 dark:text-gray-400">{batch.totalPayments} payments</div>
@@ -509,6 +753,14 @@ function PaymentHistory({ method = "paypal" }) {
                     <span className="text-gray-500 dark:text-gray-400">Status:</span>
                     <Badge variant={getStatusVariant(batchDetails.batch.status)}>{batchDetails.batch.status}</Badge>
                   </div>
+                  {batchDetails.batch.status === "failed" && batchDetails.batch.errorMessage && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500 dark:text-gray-400">Error:</span>
+                      <span className="text-sm text-red-600 dark:text-red-400 max-w-xs text-right">
+                        {batchDetails.batch.errorMessage}
+                      </span>
+                    </div>
+                  )}
                   {batchDetails.batch.paymentMethod === "paypal" && (
                     <div className="flex justify-between">
                       <span className="text-gray-500 dark:text-gray-400">PayPal Batch ID:</span>
@@ -528,7 +780,10 @@ function PaymentHistory({ method = "paypal" }) {
                   <div className="flex justify-between">
                     <span className="text-gray-500 dark:text-gray-400">Total Amount:</span>
                     <span className="font-semibold text-gray-900 dark:text-white">
-                      ${batchDetails.batch.totalAmount?.toFixed(2)}
+                      {formatAmountWithCurrency(
+                        batchDetails.batch.totalAmount || 0,
+                        batchDetails.batch.currency
+                      )}
                     </span>
                   </div>
                 </div>
@@ -567,10 +822,9 @@ function PaymentHistory({ method = "paypal" }) {
                       <Table.Head>Recipient</Table.Head>
                       <Table.Head>Email</Table.Head>
                       <Table.Head>Amount</Table.Head>
+                      {batchDetails.batch.paymentMethod === "giftogram" && <Table.Head>Order ID</Table.Head>}
                       <Table.Head>Status</Table.Head>
-                        {batchDetails.batch.paymentMethod === "paypal" && <Table.Head>PayPal Status</Table.Head>}
-                        {batchDetails.batch.paymentMethod === "giftogram" && <Table.Head>Order ID</Table.Head>}
-                        <Table.Head>Transaction ID</Table.Head>
+                      {batchDetails.batch.paymentMethod === "paypal" && <Table.Head>PayPal Status</Table.Head>}
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -578,9 +832,26 @@ function PaymentHistory({ method = "paypal" }) {
                       <Table.Row key={payment._id || index}>
                         <Table.Cell>{payment.recipientName}</Table.Cell>
                         <Table.Cell>{payment.recipientEmail}</Table.Cell>
-                        <Table.Cell>${payment.amount?.toFixed(2)}</Table.Cell>
                         <Table.Cell>
-                          <Badge variant={getStatusVariant(payment.status)}>{payment.status}</Badge>
+                          {formatAmountWithCurrency(
+                            payment.amount || 0,
+                            payment.currency || batchDetails.batch.currency
+                          )}
+                        </Table.Cell>
+                        {batchDetails.batch.paymentMethod === "giftogram" && (
+                          <Table.Cell>
+                            {payment.giftogramOrderId || "N/A"}
+                          </Table.Cell>
+                        )}
+                        <Table.Cell>
+                          <div className="space-y-1">
+                            <Badge variant={getStatusVariant(payment.status)}>{payment.status}</Badge>
+                            {payment.status === "failed" && payment.errorMessage && (
+                              <div className="text-xs text-red-600 dark:text-red-400 max-w-xs">
+                                {payment.errorMessage}
+                              </div>
+                            )}
+                          </div>
                         </Table.Cell>
                         {batchDetails.batch.paymentMethod === "paypal" && (
                           <Table.Cell>
@@ -593,18 +864,6 @@ function PaymentHistory({ method = "paypal" }) {
                             )}
                           </Table.Cell>
                         )}
-                        {batchDetails.batch.paymentMethod === "giftogram" && (
-                          <Table.Cell>
-                            <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                              {payment.giftogramOrderId || "N/A"}
-                            </code>
-                          </Table.Cell>
-                        )}
-                        <Table.Cell>
-                          <code className="text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                            {payment.transactionId || payment.giftogramOrderId || "N/A"}
-                          </code>
-                        </Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>

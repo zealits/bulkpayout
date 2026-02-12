@@ -173,7 +173,7 @@ The application expects Excel files (.xlsx, .xls) or CSV files with the followin
 
 ```
 name,email,amount,notes,currency
-John Doe,john@example.com,150.00,Freelance work payment,USD
+John Radulescu,john@example.com,150.00,Freelance work payment,USD
 Jane Smith,jane@example.com,75.00,Consultation fee,USD
 Bob Johnson,bob@example.com,200.00,Project milestone payment,USD
 ```

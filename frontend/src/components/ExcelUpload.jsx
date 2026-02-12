@@ -16,7 +16,7 @@ import Table from "./ui/Table";
 import Badge from "./ui/Badge";
 import { LoadingOverlay, Spinner } from "./ui/Loading";
 
-function ExcelUpload({ onDataUpload, defaultMethod = null }) {
+function ExcelUpload({ onDataUpload, defaultMethod = null, onNavigateToCampaignSelection }) {
   const [file, setFile] = useState(null);
   const [parsedData, setParsedData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -60,15 +60,16 @@ function ExcelUpload({ onDataUpload, defaultMethod = null }) {
       if (response.success) {
         const { validationReport, preview } = response.data;
 
+        // Always show parsed data in preview so we can highlight problems
+        setParsedData(preview);
+
         if (validationReport.isValid) {
-          setParsedData(preview);
           setValidationErrors([]);
           setError(null);
           onDataUpload(preview);
         } else {
           // File parsed successfully but has validation errors
           setValidationErrors(validationReport.errors || []);
-          setParsedData(null);
           setError(null); // Don't show generic error, show detailed validation errors instead
         }
       } else {
@@ -143,6 +144,10 @@ function ExcelUpload({ onDataUpload, defaultMethod = null }) {
         if (onDataUpload) {
           onDataUpload(result);
         }
+        // Navigate to campaign selection page after successful upload
+        if (onNavigateToCampaignSelection) {
+          onNavigateToCampaignSelection();
+        }
       }
     } catch (err) {
       setError("Error uploading file: " + err.message);
@@ -158,6 +163,84 @@ function ExcelUpload({ onDataUpload, defaultMethod = null }) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
+
+  // Helpers for the data preview table
+  const isGiftogramUpload = defaultMethod === "giftogram";
+  const getPreviewHeaders = (data) => {
+    if (!data || data.length === 0) return [];
+    return Object.keys(data[0]).filter(
+      (header) => !(isGiftogramUpload && header.toLowerCase() === "currency")
+    );
+  };
+
+  const formatPreviewCellValue = (value) => {
+    return typeof value === "number" ? value.toFixed(2) : value;
+  };
+
+  // Email validation (frontend)
+  // Rules:
+  // - no spaces
+  // - exactly one "@"
+  // - no consecutive dots
+  // - domain cannot start with "." or "-"
+  // - domain labels cannot start or end with "-"
+  // - final TLD at least 2 characters
+  const basicEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+  const getRowEmail = (row) => {
+    // Try several common email key variants just in case
+    return (
+      row.recipientEmail ||
+      row.email ||
+      row.RecipientEmail ||
+      row.RECIPIENTEMAIL ||
+      row.recipient_email ||
+      ""
+    ).toString();
+  };
+
+  const isEmailInvalid = (row) => {
+    const email = getRowEmail(row).trim();
+    if (!email) return true; // missing email is invalid
+
+    if (!basicEmailRegex.test(email)) return true;
+
+    const [localPart, domainPart] = email.split("@");
+    if (!localPart || !domainPart) return true;
+
+    // No consecutive dots anywhere
+    if (email.includes("..")) return true;
+
+    // Domain must not start with "." or "-"
+    if (domainPart.startsWith(".") || domainPart.startsWith("-")) return true;
+
+    // Each domain label cannot start or end with "-"
+    const domainLabels = domainPart.split(".");
+    if (
+      domainLabels.some(
+        (label) =>
+          !label || label.startsWith("-") || label.endsWith("-")
+      )
+    ) {
+      return true;
+    }
+
+    // Final TLD should be at least 2 characters (already enforced by regex, but double‑check)
+    const tld = domainLabels[domainLabels.length - 1];
+    if (!tld || tld.length < 2) return true;
+
+    return false;
+  };
+
+  // Map rowNumber -> validation error for non-email fields / messages
+  const getRowValidation = (row) => {
+    if (!validationErrors || validationErrors.length === 0) return null;
+    return validationErrors.find((err) => err.row === row.rowNumber) || null;
+  };
+
+  // Block processing if any row has an invalid email (frontend check)
+  const hasAnyInvalidEmails = parsedData ? parsedData.some((row) => isEmailInvalid(row)) : false;
+  const hasAnyValidationErrors = hasAnyInvalidEmails || (validationErrors && validationErrors.length > 0);
 
   return (
     <div className="space-y-6">
@@ -305,9 +388,6 @@ function ExcelUpload({ onDataUpload, defaultMethod = null }) {
                             <div>
                               <span className="font-medium">Amount:</span> "{error.data.amount || "N/A"}"
                             </div>
-                            <div>
-                              <span className="font-medium">Currency:</span> "{error.data.currency || "N/A"}"
-                            </div>
                           </div>
                         </div>
                       )}
@@ -340,19 +420,31 @@ function ExcelUpload({ onDataUpload, defaultMethod = null }) {
         </Alert>
       )}
 
-      {parsedData && validationErrors.length === 0 && (
-        <Card>
+      {parsedData && (
+        <>
+          {hasAnyInvalidEmails && (
+            <Alert variant="warning" title="Invalid email addresses found">
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Some rows have <span className="font-semibold">invalid email addresses</span>. Please correct the
+                highlighted rows in your Excel/CSV file and upload again.
+              </p>
+            </Alert>
+          )}
+
+          <Card>
           <Card.Header
             title={`Data Preview (${parsedData.length} rows)`}
             actions={
-              <Button
-                variant="primary"
-                icon={<CheckCircleIcon className="w-4 h-4" />}
-                onClick={handleProcessPayments}
-                loading={loading}
-              >
-                Process Payments
-              </Button>
+              !hasAnyValidationErrors && (
+                <Button
+                  variant="primary"
+                  icon={<CheckCircleIcon className="w-4 h-4" />}
+                  onClick={handleProcessPayments}
+                  loading={loading}
+                >
+                  {isGiftogramUpload ? "Continue to Campaign Selection" : "Process Payments"}
+                </Button>
+              )
             }
           />
           <Card.Content className="p-0">
@@ -360,34 +452,43 @@ function ExcelUpload({ onDataUpload, defaultMethod = null }) {
               <Table>
                 <Table.Header>
                   <Table.Row>
-                    {Object.keys(parsedData[0] || {}).map((header) => (
+                    {getPreviewHeaders(parsedData).map((header) => (
                       <Table.Head key={header}>{header}</Table.Head>
                     ))}
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {parsedData.slice(0, 10).map((row, index) => (
-                    <Table.Row key={index}>
-                      {Object.values(row).map((value, cellIndex) => (
-                        <Table.Cell key={cellIndex}>{typeof value === "number" ? value.toFixed(2) : value}</Table.Cell>
-                      ))}
-                    </Table.Row>
-                  ))}
-                  {parsedData.length > 10 && (
-                    <Table.Row>
-                      <Table.Cell
-                        colSpan={Object.keys(parsedData[0] || {}).length}
-                        className="text-center py-4 text-gray-500 dark:text-gray-400"
-                      >
-                        Showing first 10 rows of {parsedData.length} total rows
-                      </Table.Cell>
-                    </Table.Row>
-                  )}
+                  {parsedData.map((row, index) => {
+                    const hasEmailError = isEmailInvalid(row);
+
+                    return (
+                      <Table.Row key={index}>
+                        {getPreviewHeaders(parsedData).map((header) => {
+                          const isEmailColumn = header.toLowerCase().includes("email");
+                          const cellHasError = isEmailColumn && hasEmailError;
+
+                          return (
+                            <Table.Cell
+                              key={header}
+                              className={
+                                cellHasError
+                                  ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                                  : undefined
+                              }
+                            >
+                              {formatPreviewCellValue(row[header])}
+                            </Table.Cell>
+                          );
+                        })}
+                      </Table.Row>
+                    );
+                  })}
                 </Table.Body>
               </Table>
             </div>
           </Card.Content>
         </Card>
+        </>
       )}
     </div>
   );

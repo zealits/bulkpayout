@@ -235,13 +235,19 @@ const processGiftogramBatch = asyncHandler(async (req, res) => {
 
     // Check if all orders failed
     if (giftogramResult.successful === 0 && giftogramResult.failed > 0) {
-      // Update batch status to failed
+      // Prefer the first detailed error message from Giftogram, if available
+      const firstErrorMessage =
+        giftogramResult.errors?.[0]?.error ||
+        giftogramResult.results?.find((r) => !r.success && r.error)?.error ||
+        "All gift card orders failed";
+
+      // Update batch status and store the exact reason so it can be displayed in history
       batch.status = "failed";
-      batch.errorMessage = "All gift card orders failed";
+      batch.errorMessage = firstErrorMessage;
       await batch.save();
 
       return errorResponse(res, "All gift card orders failed", 400, {
-        message: "All gift card orders failed to process",
+        message: firstErrorMessage,
         suggestion: "Please check the error details and try again.",
         action: "Review errors and retry",
         severity: "error",

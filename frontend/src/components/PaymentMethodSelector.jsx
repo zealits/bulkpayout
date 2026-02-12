@@ -16,7 +16,14 @@ import { getGiftogramCampaigns, testGiftogramConnection } from "../services/gift
 import { testXeConnection, getXeAccounts } from "../services/xeService";
 import { updateBatchPaymentMethod } from "../services/paymentService";
 
-function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", allowedMethod = null }) {
+function PaymentMethodSelector({
+  batch,
+  onMethodChange,
+  onError,
+  mode = "full",
+  allowedMethod = null,
+  onCurrencyChange = null,
+}) {
   const [selectedMethod, setSelectedMethod] = useState(
     allowedMethod || batch?.paymentMethod || "paypal"
   );
@@ -34,6 +41,41 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
   });
   const [xeAccounts, setXeAccounts] = useState([]);
   const [xeStatus, setXeStatus] = useState(null);
+  const [showGiftogramRequirements, setShowGiftogramRequirements] = useState(false);
+
+  const extractCampaignCurrencies = (campaign) => {
+    if (!campaign) return [];
+
+    if (Array.isArray(campaign.currencies)) {
+      return campaign.currencies;
+    }
+    if (typeof campaign.currencies === "string") {
+      return [campaign.currencies];
+    }
+    if (Array.isArray(campaign.currency)) {
+      return campaign.currency;
+    }
+    if (typeof campaign.currency === "string") {
+      return [campaign.currency];
+    }
+    if (Array.isArray(campaign.data?.currencies)) {
+      return campaign.data.currencies;
+    }
+
+    return [];
+  };
+
+  // Safely build a human-readable label for a Giftogram campaign,
+  // including currencies when they are available from the API.
+  const getCampaignLabel = (campaign) => {
+    if (!campaign) return "";
+
+    const currencies = extractCampaignCurrencies(campaign);
+    const currencyPart = currencies.length > 0 ? ` (${currencies.join(", ")})` : "";
+    const descriptionPart = campaign.description ? ` - ${campaign.description}` : "";
+
+    return `${campaign.name || "Untitled Campaign"}${currencyPart}${descriptionPart}`;
+  };
 
   // Payment method configurations
   const paymentMethods = [
@@ -91,13 +133,24 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
         // Load campaigns
         const campaignsResponse = await getGiftogramCampaigns();
         if (campaignsResponse.success) {
-          setCampaigns(campaignsResponse.data || []);
+          const loadedCampaigns = campaignsResponse.data || [];
+          setCampaigns(loadedCampaigns);
           // Set default campaign if none selected
-          if (!giftogramConfig.campaignId && campaignsResponse.data?.length > 0) {
+          if (!giftogramConfig.campaignId && loadedCampaigns.length > 0) {
+            const firstCampaign = loadedCampaigns[0];
             setGiftogramConfig((prev) => ({
               ...prev,
-              campaignId: campaignsResponse.data[0].id,
+              campaignId: firstCampaign.id,
             }));
+
+            if (onCurrencyChange) {
+              const currencies = extractCampaignCurrencies(firstCampaign);
+              onCurrencyChange({
+                campaign: firstCampaign,
+                currencies,
+                currencyCode: currencies.length > 0 ? currencies[0] : null,
+              });
+            }
           }
         }
       } else {
@@ -197,7 +250,12 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
     try {
       let config = {};
       if (selectedMethod === "giftogram") {
-        config = giftogramConfig;
+        const selectedCampaign = campaigns.find((c) => c.id === giftogramConfig.campaignId);
+        const currencies = extractCampaignCurrencies(selectedCampaign);
+        config = {
+          ...giftogramConfig,
+          currency: currencies.length > 0 ? currencies[0] : undefined,
+        };
       } else if (selectedMethod === "xe_bank_transfer") {
         config = xeConfig;
       }
@@ -206,10 +264,22 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
 
       if (response.success) {
         if (onMethodChange) {
+          let extra = {};
+          if (selectedMethod === "giftogram") {
+            const selectedCampaign = campaigns.find((c) => c.id === giftogramConfig.campaignId);
+            const currencies = extractCampaignCurrencies(selectedCampaign);
+            extra = {
+              giftogramCampaign: selectedCampaign || null,
+              giftogramCurrencies: currencies,
+              currencyCode: currencies.length > 0 ? currencies[0] : null,
+            };
+          }
+
           onMethodChange({
             paymentMethod: selectedMethod,
             config,
             batch: response.data.batch,
+            ...extra,
           });
         }
       }
@@ -294,18 +364,49 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
         </div>
       )}
 
-      {/* Giftogram Configuration */}
+      {/* Giftogram Configuration - flattened (no inner card box) */}
       {selectedMethod === "giftogram" && (!allowedMethod || allowedMethod === "giftogram") && (
-        <Card className="p-6">
-          <div className="flex items-center mb-4">
+        <div className="space-y-4">
+          <div className="flex items-center">
             <GiftIcon className="w-5 h-5 text-purple-600 mr-2" />
             <h4 className="font-semibold text-gray-900 dark:text-white">Gift Card Configuration</h4>
             {giftogramStatus === "connected" && (
-              <Badge variant="success" size="sm" className="ml-2">Connected</Badge>
+              <Badge variant="success" size="sm" className="ml-2">
+                Connected
+              </Badge>
             )}
             {giftogramStatus === "error" && (
-              <Badge variant="danger" size="sm" className="ml-2">Connection Error</Badge>
+              <Badge variant="danger" size="sm" className="ml-2">
+                Connection Error
+              </Badge>
             )}
+            {/* Giftogram requirements info icon */}
+            <div
+              className="relative ml-3"
+              onMouseEnter={() => setShowGiftogramRequirements(true)}
+              onMouseLeave={() => setShowGiftogramRequirements(false)}
+            >
+              <button
+                type="button"
+                className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-white dark:bg-gray-800"
+                onClick={() => setShowGiftogramRequirements((prev) => !prev)}
+                aria-label="Giftogram requirements"
+              >
+                <InformationCircleIcon className="w-4 h-4" />
+              </button>
+              {showGiftogramRequirements && (
+                <div className="absolute z-20 mt-2 w-80 right-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-4 text-sm">
+                  <p className="font-medium text-gray-900 dark:text-white mb-2">
+                    Giftogram Requirements
+                  </p>
+                  <ul className="space-y-1 text-gray-700 dark:text-gray-300">
+                    <li>• Gift card amounts will be rounded to the nearest 5 in the campaign currency</li>
+                    <li>• Email subject line is required for all recipients</li>
+                    <li>• Choose a campaign from your Giftogram account</li>
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
 
           {loading ? (
@@ -319,71 +420,93 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
               <div className="lg:col-span-2 space-y-4">
                 {/* Campaign Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Gift Card Campaign</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Gift Card Campaign
+                  </label>
                   <select
                     value={giftogramConfig.campaignId}
-                    onChange={(e) => setGiftogramConfig((prev) => ({ ...prev, campaignId: e.target.value }))}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setGiftogramConfig((prev) => ({ ...prev, campaignId: value }));
+
+                      if (onCurrencyChange) {
+                        const selectedCampaign = campaigns.find((c) => c.id === value);
+                        const currencies = extractCampaignCurrencies(selectedCampaign);
+                        onCurrencyChange({
+                          campaign: selectedCampaign,
+                          currencies,
+                          currencyCode: currencies.length > 0 ? currencies[0] : null,
+                        });
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                   >
                     <option value="">Select a campaign...</option>
                     {campaigns.map((campaign) => (
                       <option key={campaign.id} value={campaign.id}>
-                        {campaign.name} {campaign.description && `- ${campaign.description}`}
+                        {getCampaignLabel(campaign)}
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Choose which Giftogram campaign your cards will be sent from.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Choose which Giftogram campaign your cards will be sent from.
+                  </p>
                   {campaigns.length === 0 && giftogramStatus === "connected" && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">No campaigns available. Please check your Giftogram account.</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      No campaigns available. Please check your Giftogram account.
+                    </p>
                   )}
                 </div>
 
                 {/* Subject */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email Subject <span className="text-red-500">*</span></label>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{giftogramConfig.subject.length}/120</span>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Email Subject <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {giftogramConfig.subject.length}/120
+                    </span>
                   </div>
                   <Input
                     type="text"
                     value={giftogramConfig.subject}
-                    onChange={(e) => setGiftogramConfig((prev) => ({ ...prev, subject: e.target.value.slice(0,120) }))}
+                    onChange={(e) =>
+                      setGiftogramConfig((prev) => ({ ...prev, subject: e.target.value.slice(0, 120) }))
+                    }
                     placeholder="You have received a gift card!"
                     className="w-full"
                   />
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This will be the email subject line for recipients</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    This will be the email subject line for recipients
+                  </p>
                 </div>
 
                 {/* Custom Message */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Custom Message</label>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{giftogramConfig.message.length} chars</span>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Custom Message
+                    </label>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {giftogramConfig.message.length} chars
+                    </span>
                   </div>
                   <textarea
                     value={giftogramConfig.message}
-                    onChange={(e) => setGiftogramConfig((prev) => ({ ...prev, message: e.target.value }))}
+                    onChange={(e) =>
+                      setGiftogramConfig((prev) => ({ ...prev, message: e.target.value }))
+                    }
                     placeholder="Enter a custom message for your gift card recipients..."
                     rows={5}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none"
                   />
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This message will be included with each gift card</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    This message will be included with each gift card
+                  </p>
                 </div>
 
-                {giftogramStatus === "connected" && (
-                  <Alert variant="info">
-                    <InformationCircleIcon className="w-5 h-5" />
-                    <div>
-                      <p className="font-medium">Giftogram Requirements:</p>
-                      <ul className="mt-1 text-sm space-y-1">
-                        <li>• Gift card amounts will be rounded to the nearest $5 increment</li>
-                        <li>• Email subject line is required for all recipients</li>
-                        <li>• Choose a campaign from your Giftogram account</li>
-                      </ul>
-                    </div>
-                  </Alert>
-                )}
-
+                {/* Requirements info moved to header icon popup */}
                 {giftogramStatus === "error" && (
                   <Alert variant="warning">
                     <InformationCircleIcon className="w-5 h-5" />
@@ -395,23 +518,29 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
               {/* Right: Live preview */}
               <div className="lg:col-span-1">
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
-                  <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Email preview</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+                    Email preview
+                  </p>
                   <div className="rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-3 space-y-3">
                     <div>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Subject</p>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">{giftogramConfig.subject || "You have received a gift card!"}</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        {giftogramConfig.subject || "You have received a gift card!"}
+                      </p>
                     </div>
                     <div className="h-px bg-gray-200 dark:bg-gray-700" />
                     <div>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Message</p>
-                      <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">{giftogramConfig.message}</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                        {giftogramConfig.message}
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           )}
-        </Card>
+        </div>
       )}
 
       {/* PayPal Information */}
@@ -517,7 +646,7 @@ function PaymentMethodSelector({ batch, onMethodChange, onError, mode = "full", 
             (selectedMethod === "xe_bank_transfer" && (!xeConfig.accountNumber || xeStatus === "error"))
           }
         >
-          {saving ? "Saving Configuration..." : "Save Payment Method"}
+          {saving ? "Saving Configuration..." : "Save Campaign"}
         </Button>
       </div>
     </div>

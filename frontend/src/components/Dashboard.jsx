@@ -55,7 +55,7 @@ const menuItems = [
     icon: GiftIcon,
     children: [
       { text: "Upload Excel", icon: ArrowUpTrayIcon, component: "gift-upload" },
-      { text: "Payment Preview", icon: GiftIcon, component: "gift-preview" },
+      { text: "Select Campaign", icon: GiftIcon, component: "gift-preview" },
       { text: "Payment History", icon: ClockIcon, component: "gift-history" },
     ],
   },
@@ -77,7 +77,8 @@ function Dashboard() {
   const [selectedComponent, setSelectedComponent] = useState("dashboard");
   const [paypalUploadedData, setPaypalUploadedData] = useState(null);
   const [giftUploadedData, setGiftUploadedData] = useState(null);
-  const [expandedMenus, setExpandedMenus] = useState({ PayPal: true, "Gift Cards": true, "XE Payment": true });
+  // Keep all dropdown menus collapsed by default on initial load/refresh
+  const [expandedMenus, setExpandedMenus] = useState({ PayPal: false, "Gift Cards": false, "XE Payment": false });
   const { isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const { environment, toggleEnvironment, isProduction, isSandbox } = useEnvironment();
@@ -103,13 +104,19 @@ function Dashboard() {
   const renderComponent = () => {
     switch (selectedComponent) {
       case "paypal-upload":
-        return <ExcelUpload onDataUpload={setPaypalUploadedData} />;
+        return <ExcelUpload onDataUpload={setPaypalUploadedData} defaultMethod="paypal" />;
       case "paypal-preview":
         return <PaymentPreview data={paypalUploadedData} defaultMethod="paypal" />;
       case "paypal-history":
         return <PaymentHistory method="paypal" />;
       case "gift-upload":
-        return <ExcelUpload onDataUpload={setGiftUploadedData} defaultMethod="giftogram" />;
+        return (
+          <ExcelUpload
+            onDataUpload={setGiftUploadedData}
+            defaultMethod="giftogram"
+            onNavigateToCampaignSelection={() => setSelectedComponent("gift-preview")}
+          />
+        );
       case "gift-preview":
         return <PaymentPreview data={giftUploadedData} defaultMethod="giftogram" />;
       case "gift-history":
@@ -361,13 +368,32 @@ function DashboardHome({ uploadedData }) {
     fetchDashboardStats();
   }, [environment]);
 
-  const formatCurrency = (amount) => {
+  const formatCurrency = (amount, currencyCode = "USD") => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
+      currency: currencyCode,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount || 0);
+  };
+
+  const formatAmountWithCode = (amount, code) => {
+    const num = typeof amount === "number" ? amount : parseFloat(amount || 0);
+    return `${num.toFixed(2)} ${code}`;
+  };
+
+  const renderAmountsByCurrency = (amountsByCurrency, fallbackAmount = 0, colorClass = "text-green-600") => {
+    const amounts =
+      amountsByCurrency && typeof amountsByCurrency === "object" && Object.keys(amountsByCurrency).length > 0
+        ? amountsByCurrency
+        : { USD: fallbackAmount };
+    const entries = Object.entries(amounts).filter(([, amt]) => (amt && Number(amt) > 0));
+    if (entries.length === 0) return <p className={`text-sm font-semibold ${colorClass} mt-1`}>{formatAmountWithCode(0, "USD")}</p>;
+    return entries.map(([code, amt]) => (
+      <p key={code} className={`text-sm font-semibold ${colorClass} mt-1`}>
+        {formatAmountWithCode(amt, code)}
+      </p>
+    ));
   };
 
   if (loading) {
@@ -417,9 +443,7 @@ function DashboardHome({ uploadedData }) {
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {dashboardStats.xe.contracts} contracts, {dashboardStats.xe.payments} payments
               </p>
-              <p className="text-sm font-semibold text-blue-600 mt-1">
-                {formatCurrency(dashboardStats.xe.totalAmount)}
-              </p>
+              {renderAmountsByCurrency(dashboardStats.xe?.amountsByCurrency, dashboardStats.xe?.totalAmount, "text-blue-600")}
             </div>
           </div>
         </Card>
@@ -434,9 +458,7 @@ function DashboardHome({ uploadedData }) {
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">PayPal Payments</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{dashboardStats.paypal.payments}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">completed payments</p>
-              <p className="text-sm font-semibold text-green-600 mt-1">
-                {formatCurrency(dashboardStats.paypal.totalAmount)}
-              </p>
+              {renderAmountsByCurrency(dashboardStats.paypal?.amountsByCurrency, dashboardStats.paypal?.totalAmount, "text-green-600")}
             </div>
           </div>
         </Card>
@@ -451,9 +473,7 @@ function DashboardHome({ uploadedData }) {
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Gift Cards Sent</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{dashboardStats.giftogram.giftCards}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">gift cards delivered</p>
-              <p className="text-sm font-semibold text-purple-600 mt-1">
-                {formatCurrency(dashboardStats.giftogram.totalAmount)}
-              </p>
+              {renderAmountsByCurrency(dashboardStats.giftogram?.amountsByCurrency, dashboardStats.giftogram?.totalAmount, "text-purple-600")}
             </div>
           </div>
         </Card>
@@ -475,11 +495,17 @@ function DashboardHome({ uploadedData }) {
                 dashboardStats.giftogram.giftCards}
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total Amount</p>
-            <p className="text-2xl font-bold text-green-600">
-              {formatCurrency(
-                dashboardStats.xe.totalAmount + dashboardStats.paypal.totalAmount + dashboardStats.giftogram.totalAmount
-              )}
-            </p>
+            <div className="text-2xl font-bold text-green-600 space-y-0.5">
+              {dashboardStats.totalsByCurrency &&
+              typeof dashboardStats.totalsByCurrency === "object" &&
+              Object.keys(dashboardStats.totalsByCurrency).length > 0
+                ? Object.entries(dashboardStats.totalsByCurrency)
+                    .filter(([, amt]) => amt > 0)
+                    .map(([code, amt]) => (
+                      <p key={code}>{formatAmountWithCode(amt, code)}</p>
+                    ))
+                : <p>{formatAmountWithCode(0, "USD")}</p>}
+            </div>
           </div>
         </div>
       </Card>

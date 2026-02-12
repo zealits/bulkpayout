@@ -772,7 +772,7 @@ export default api;
 
 | name        | email            | amount | notes                     | currency |
 | ----------- | ---------------- | ------ | ------------------------- | -------- |
-| John Doe    | john@example.com | 150.00 | Freelance work payment    | USD      |
+| John Radulescu | john@example.com | 150.00 | Freelance work payment    | USD      |
 | Jane Smith  | jane@example.com | 75.0  | Consultation fee          | USD      |
 | Bob Johnson | bob@example.com  | 200.00 | Project milestone payment | USD      |
 

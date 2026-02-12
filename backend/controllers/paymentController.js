@@ -440,21 +440,41 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     },
   ]);
 
+  // Get completed payments grouped by payment method AND currency (for per-currency display)
+  const paymentStatsByCurrency = await Payment.aggregate([
+    {
+      $match: {
+        status: "completed",
+        environment: environment,
+      },
+    },
+    {
+      $group: {
+        _id: { paymentMethod: "$paymentMethod", currency: { $ifNull: ["$currency", "USD"] } },
+        totalAmount: { $sum: "$amount" },
+      },
+    },
+  ]);
+
   // Initialize stats object
   const stats = {
     xe: {
       contracts: 0,
       payments: 0,
       totalAmount: 0,
+      amountsByCurrency: {},
     },
     paypal: {
       payments: 0,
       totalAmount: 0,
+      amountsByCurrency: {},
     },
     giftogram: {
       giftCards: 0,
       totalAmount: 0,
+      amountsByCurrency: {},
     },
+    totalsByCurrency: {},
   };
 
   // Process payment stats
@@ -469,6 +489,23 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       stats.giftogram.giftCards = stat.count;
       stats.giftogram.totalAmount = stat.totalAmount;
     }
+  });
+
+  // Build amountsByCurrency per method and grand totalsByCurrency
+  paymentStatsByCurrency.forEach((stat) => {
+    const method = stat._id.paymentMethod;
+    const currency = stat._id.currency || "USD";
+    const amount = stat.totalAmount || 0;
+
+    if (method === "xe_bank_transfer") {
+      stats.xe.amountsByCurrency[currency] = (stats.xe.amountsByCurrency[currency] || 0) + amount;
+    } else if (method === "paypal") {
+      stats.paypal.amountsByCurrency[currency] = (stats.paypal.amountsByCurrency[currency] || 0) + amount;
+    } else if (method === "giftogram") {
+      stats.giftogram.amountsByCurrency[currency] = (stats.giftogram.amountsByCurrency[currency] || 0) + amount;
+    }
+
+    stats.totalsByCurrency[currency] = (stats.totalsByCurrency[currency] || 0) + amount;
   });
 
   // Get XE contracts statistics (settled contracts), filtered by environment
@@ -510,13 +547,17 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
   if (xeContracts.length > 0 && xeContracts[0].count > 0) {
     stats.xe.contracts = xeContracts[0].count;
+    const contractAmount = xeContracts[0].totalAmount || 0;
     // Use contract amounts if payments amount is 0 or add to it
     if (stats.xe.totalAmount === 0) {
-      stats.xe.totalAmount = xeContracts[0].totalAmount || 0;
+      stats.xe.totalAmount = contractAmount;
     } else {
-      // If we have both payments and contracts, use the higher amount or combine logic
-      // For now, prefer payments amount as it's more accurate
-      stats.xe.totalAmount = Math.max(stats.xe.totalAmount, xeContracts[0].totalAmount || 0);
+      stats.xe.totalAmount += contractAmount;
+    }
+    // Add XE contract amount to per-currency totals (treat as USD for dashboard)
+    if (contractAmount > 0) {
+      stats.totalsByCurrency["USD"] = (stats.totalsByCurrency["USD"] || 0) + contractAmount;
+      stats.xe.amountsByCurrency["USD"] = (stats.xe.amountsByCurrency["USD"] || 0) + contractAmount;
     }
   }
 
@@ -568,6 +609,9 @@ const updateBatchPaymentMethod = asyncHandler(async (req, res) => {
       batch.giftogramCampaignId = config.campaignId;
       batch.giftogramMessage = config.message;
       batch.giftogramSubject = config.subject;
+      if (config.currency) {
+        batch.currency = config.currency;
+      }
     } else if (paymentMethod === "xe_bank_transfer") {
       batch.xeAccountNumber = config.accountNumber;
       batch.xeConfigData = config;
@@ -576,8 +620,12 @@ const updateBatchPaymentMethod = asyncHandler(async (req, res) => {
 
   await batch.save();
 
-  // Update all payments in the batch
-  await Payment.updateMany({ batchId }, { paymentMethod });
+  // Update all payments in the batch (payment method + currency for giftogram)
+  const paymentUpdate = { paymentMethod };
+  if (paymentMethod === "giftogram" && batch.currency) {
+    paymentUpdate.currency = batch.currency;
+  }
+  await Payment.updateMany({ batchId }, paymentUpdate);
 
   console.log(`Updated batch ${batchId} payment method to ${paymentMethod}`);
 

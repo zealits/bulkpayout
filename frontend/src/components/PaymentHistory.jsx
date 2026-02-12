@@ -549,8 +549,9 @@ function PaymentHistory({ method = "paypal" }) {
             >
               <option value="all">All Status</option>
               <option value="completed">Completed</option>
-              <option value="pending">Pending</option>
+              <option value="partial">Partial</option>
               <option value="failed">Failed</option>
+              <option value="uploaded">Uploaded</option>
             </select>
           </div>
 

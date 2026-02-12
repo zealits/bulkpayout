@@ -334,6 +334,158 @@ const processGiftogramBatch = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Process gift card batch with streaming progress (SSE)
+// @route   POST /api/giftogram/batches/:batchId/process-stream
+// @access  Public
+const processGiftogramBatchStream = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+  const { giftogramConfig } = req.body;
+
+  console.log(`🎁 Processing Giftogram batch (stream): ${batchId}`);
+
+  const batch = await PaymentBatch.findOne({ batchId });
+  if (!batch) {
+    return res.status(404).json({ success: false, error: "Payment batch not found" });
+  }
+
+  if (batch.paymentMethod !== "giftogram") {
+    return res.status(400).json({ success: false, error: "Batch is not configured for Giftogram payments" });
+  }
+
+  const payments = await Payment.find({
+    batchId,
+    status: "pending",
+    paymentMethod: "giftogram",
+  });
+
+  if (payments.length === 0) {
+    return res.status(400).json({ success: false, error: "No pending Giftogram payments found in this batch" });
+  }
+
+  // Store Giftogram configuration
+  if (giftogramConfig) {
+    batch.giftogramCampaignId = giftogramConfig.campaignId;
+    batch.giftogramMessage = giftogramConfig.message;
+    batch.giftogramSubject = giftogramConfig.subject;
+  }
+  await batch.save();
+
+  batch.status = "processing";
+  batch.processedAt = new Date();
+  await batch.save();
+
+  await Payment.updateMany(
+    { batchId, status: "pending", paymentMethod: "giftogram" },
+    { status: "processing", processedAt: new Date() }
+  );
+
+  // Set SSE headers - response will stream progress
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+  res.flushHeaders();
+
+  const sendEvent = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (typeof res.flush === "function") res.flush();
+  };
+
+  const environment = batch.environment || "sandbox";
+  const giftogramService = getGiftogramService(environment);
+  const total = payments.length;
+  let sentCount = 0;
+  let successCount = 0;
+  let failCount = 0;
+
+  try {
+    for (let i = 0; i < payments.length; i++) {
+      const payment = payments[i];
+      const order = {
+        recipientEmail: payment.recipientEmail,
+        recipientName: payment.recipientName,
+        amount: payment.amount,
+        message: giftogramConfig?.message || batch.giftogramMessage || "Thank you for your hard work! Enjoy your gift card!",
+        subject: giftogramConfig?.subject || batch.giftogramSubject || "You have received a gift card!",
+        notes: giftogramConfig?.notes || `Gift card for ${payment.recipientName}`,
+        campaignId: giftogramConfig?.campaignId || batch.giftogramCampaignId,
+      };
+
+      const result = await giftogramService.createGiftCardOrder(order);
+
+      sentCount++;
+      const success = result.success && result.data;
+      let recipientStatus = null;
+      if (success) {
+        successCount++;
+        const orderId = result.data.data?.order_id || result.data.order_id || result.data.id;
+        recipientStatus = result.data.data?.recipients?.[0]?.status || result.data.recipients?.[0]?.status;
+        const paymentStatus = recipientStatus === "sent" ? "completed" : "processing";
+        await payment.updateStatus(paymentStatus, {
+          giftogramOrderId: orderId,
+          giftogramCampaignId: giftogramConfig?.campaignId || batch.giftogramCampaignId,
+          giftogramMessage: giftogramConfig?.message || batch.giftogramMessage,
+          giftogramSubject: giftogramConfig?.subject || batch.giftogramSubject,
+          giftogramStatus: result.data.data?.status || result.data.status,
+        });
+      } else {
+        failCount++;
+        await payment.updateStatus("failed", {
+          errorMessage: result.error || "Unknown error",
+          completedAt: new Date(),
+        });
+      }
+
+      const paymentStatus = success
+        ? (recipientStatus === "sent" ? "completed" : "processing")
+        : "failed";
+
+      sendEvent({
+        sent: sentCount,
+        total,
+        success,
+        paymentId: payment._id.toString(),
+        email: payment.recipientEmail,
+        status: paymentStatus,
+        errorMessage: success ? null : (result.error || "Unknown error"),
+      });
+    }
+
+    await batch.updateCounts();
+    const allFailed = successCount === 0 && failCount > 0;
+    batch.status = allFailed ? "failed" : "completed";
+    if (allFailed && payments.length > 0) {
+      const firstFailed = payments.find((p) => p.status === "failed");
+      batch.errorMessage = firstFailed?.errorMessage || "All gift card orders failed";
+    }
+    await batch.save();
+
+    sendEvent({
+      done: true,
+      sent: sentCount,
+      total,
+      successful: successCount,
+      failed: failCount,
+      hasFailures: failCount > 0,
+    });
+  } catch (error) {
+    console.error("Error in streaming Giftogram processing:", error);
+    sendEvent({
+      done: true,
+      error: error.message,
+      sent: sentCount,
+      total,
+      successful: successCount,
+      failed: failCount,
+    });
+    batch.status = "failed";
+    batch.errorMessage = error.message;
+    await batch.save();
+  } finally {
+    res.end();
+  }
+});
+
 // @desc    Update Giftogram order statuses
 // @route   POST /api/giftogram/batches/:batchId/sync
 // @access  Public
@@ -550,6 +702,7 @@ const testGiftogramConnection = asyncHandler(async (req, res) => {
 module.exports = {
   getGiftogramCampaigns,
   processGiftogramBatch,
+  processGiftogramBatchStream,
   syncGiftogramBatch,
   getGiftogramFunding,
   testGiftogramConnection,

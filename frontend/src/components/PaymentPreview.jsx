@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { processPaymentBatch, getPaymentsByBatch } from "../services/paymentService";
-import { processGiftogramBatch } from "../services/giftogramService";
+import { processGiftogramBatchStream } from "../services/giftogramService";
 import { useEnvironment } from "../contexts/EnvironmentContext";
 import {
   CreditCardIcon,
@@ -32,6 +32,7 @@ function PaymentPreview({ data, defaultMethod = "paypal" }) {
   const [successMessage, setSuccessMessage] = useState(null);
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState(defaultMethod || "paypal");
   const [currencyCode, setCurrencyCode] = useState("");
+  const [streamProgress, setStreamProgress] = useState({ sent: 0, total: 0 });
 
   // If data is from upload result, extract batch info
   useEffect(() => {
@@ -102,6 +103,8 @@ function PaymentPreview({ data, defaultMethod = "paypal" }) {
     setProcessing(true);
     setError(null);
     setSuccessMessage(null);
+    const totalToProcess = payments.length || displayData.length || 0;
+    setStreamProgress({ sent: 0, total: currentPaymentMethod === "giftogram" ? totalToProcess : 0 });
 
     try {
       let response;
@@ -115,15 +118,41 @@ function PaymentPreview({ data, defaultMethod = "paypal" }) {
             suggestion: "Configure the campaign and click \"Save Campaign\" above, then try again.",
             action: "Save campaign",
           });
+          setProcessing(false);
           return;
         }
 
-        // Process with Giftogram
-        response = await processGiftogramBatch(batchInfo.batchId, {
+        const giftogramConfig = {
           campaignId: batchInfo.giftogramCampaignId,
           message: batchInfo.giftogramMessage || "Thank you for your hard work! Enjoy your gift card!",
           subject: batchInfo.giftogramSubject || "You have received a gift card!",
-        });
+        };
+
+        const result = await processGiftogramBatchStream(
+          batchInfo.batchId,
+          giftogramConfig,
+          (event) => {
+            setStreamProgress({ sent: event.sent, total: event.total });
+            setPayments((prev) =>
+              prev.map((p) =>
+                (p._id && String(p._id) === event.paymentId) || p.recipientEmail === event.email
+                  ? { ...p, status: event.status, errorMessage: event.errorMessage ?? p.errorMessage }
+                  : p
+              )
+            );
+          }
+        );
+
+        response = {
+          success: true,
+          data: {
+            summary: {
+              successful: result.successful,
+              failed: result.failed,
+            },
+            hasFailures: result.hasFailures,
+          },
+        };
       } else if (currentPaymentMethod === "paypal") {
         // Process with PayPal
         response = await processPaymentBatch(batchInfo.batchId, {
@@ -159,6 +188,7 @@ function PaymentPreview({ data, defaultMethod = "paypal" }) {
         await loadPayments(batchInfo.batchId);
       }
       setProcessing(false);
+      setStreamProgress({ sent: 0, total: 0 });
     }
   };
 
@@ -356,8 +386,20 @@ function PaymentPreview({ data, defaultMethod = "paypal" }) {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</p>
-              <p className="text-2xl font-bold text-blue-600">Ready</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">ready to process</p>
+              <p className="text-2xl font-bold text-blue-600">
+                {processing && currentPaymentMethod === "giftogram" && streamProgress.total > 0
+                  ? `Processing (${streamProgress.sent}/${streamProgress.total})`
+                  : processing
+                  ? "Processing..."
+                  : "Ready"}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {processing && currentPaymentMethod === "giftogram" && streamProgress.total > 0
+                  ? "sending gift cards one by one"
+                  : processing
+                  ? "please wait"
+                  : "ready to process"}
+              </p>
             </div>
           </div>
         </Card>
@@ -391,7 +433,9 @@ function PaymentPreview({ data, defaultMethod = "paypal" }) {
           className="flex-1 sm:flex-none"
         >
           {processing
-            ? currentPaymentMethod === "giftogram"
+            ? currentPaymentMethod === "giftogram" && streamProgress.total > 0
+              ? `Sending Gift Cards (${streamProgress.sent}/${streamProgress.total})`
+              : currentPaymentMethod === "giftogram"
               ? "Sending Gift Cards..."
               : "Processing Payments..."
             : currentPaymentMethod === "giftogram"

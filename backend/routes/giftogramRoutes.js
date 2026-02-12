@@ -2,6 +2,7 @@ const express = require("express");
 const {
   getGiftogramCampaigns,
   processGiftogramBatch,
+  processGiftogramBatchStream,
   syncGiftogramBatch,
   getGiftogramFunding,
   testGiftogramConnection,
@@ -22,6 +23,7 @@ router.get("/funding", getGiftogramFunding);
 
 // Batch processing routes
 router.post("/batches/:batchId/process", processGiftogramBatch);
+router.post("/batches/:batchId/process-stream", processGiftogramBatchStream);
 router.post("/batches/:batchId/sync", syncGiftogramBatch);
 
 // Test routes

@@ -45,7 +45,7 @@ api.interceptors.request.use(
   },
   (error) => {
     return Promise.reject(error);
-  }
+  },
 );
 
 // Response interceptor
@@ -80,7 +80,7 @@ api.interceptors.response.use(
       status: error.response?.status,
       errors: error.response?.data?.errors,
     });
-  }
+  },
 );
 
 export default api;

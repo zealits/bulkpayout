@@ -21,8 +21,42 @@ const getPaymentBatches = asyncHandler(async (req, res) => {
     environment = "sandbox";
   }
 
-  // Filter batches by environment
+  // Build query: environment + optional status and paymentMethod
   const query = { environment };
+
+  const status = req.query.status;
+  if (status && status !== "all") {
+    query.status = status;
+  }
+
+  const paymentMethod = req.query.paymentMethod;
+  if (paymentMethod) {
+    query.paymentMethod = paymentMethod;
+  }
+
+  // Optional date filter (period)
+  const period = req.query.period;
+  if (period) {
+    const now = new Date();
+    let startDate;
+    switch (period) {
+      case "today":
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case "week":
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case "month":
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      default:
+        break;
+    }
+    if (startDate) {
+      query.createdAt = { $gte: startDate };
+    }
+  }
+
   const batches = await PaymentBatch.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
   const totalCount = await PaymentBatch.countDocuments(query);
 
@@ -385,7 +419,7 @@ const getPaymentStats = asyncHandler(async (req, res) => {
     },
   ]);
 
-  // Get batch statistics
+  // Get batch statistics (totals)
   const batchStats = await PaymentBatch.aggregate([
     { $match: batchFilter },
     {
@@ -398,9 +432,50 @@ const getPaymentStats = asyncHandler(async (req, res) => {
     },
   ]);
 
+  // Get batch statistics grouped by status (for summary cards)
+  // PaymentBatch uses successCount, failureCount, pendingCount (not completedPayments/failedPayments)
+  const batchStatusStats = await PaymentBatch.aggregate([
+    { $match: batchFilter },
+    {
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
+        totalPayments: { $sum: "$totalPayments" },
+        completedPayments: { $sum: "$successCount" },
+        failedPayments: { $sum: "$failureCount" },
+        processingPayments: { $sum: "$pendingCount" },
+        pendingPayments: { $sum: "$pendingCount" },
+      },
+    },
+  ]);
+
+  // Get payment totals grouped by currency for COMPLETED payments only (for total amount card)
+  const completedMatchCriteria = {
+    ...matchCriteria,
+    status: "completed",
+  };
+
+  const totalsByCurrencyAgg = await Payment.aggregate([
+    { $match: completedMatchCriteria },
+    {
+      $group: {
+        _id: { currency: { $ifNull: ["$currency", "USD"] } },
+        totalAmount: { $sum: "$amount" },
+      },
+    },
+  ]);
+
+  const totalsByCurrency = {};
+  totalsByCurrencyAgg.forEach((item) => {
+    const code = item._id.currency || "USD";
+    totalsByCurrency[code] = (totalsByCurrency[code] || 0) + (item.totalAmount || 0);
+  });
+
   const result = {
     paymentStats: stats,
     batchStats: batchStats[0] || { totalBatches: 0, totalPayments: 0, totalAmount: 0 },
+    batchStatusStats,
+    totalsByCurrency,
     period: period || "all",
   };
 

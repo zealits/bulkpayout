@@ -1,9 +1,13 @@
 import api from "./api";
 
-// Get all payment batches
-export const getPaymentBatches = async (page = 1, limit = 10) => {
+// Get all payment batches (optional: status, paymentMethod, period for server-side filtering)
+export const getPaymentBatches = async (page = 1, limit = 10, filters = {}) => {
   try {
-    const response = await api.get(`/payments/batches?page=${page}&limit=${limit}`);
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (filters.status && filters.status !== "all") params.append("status", filters.status);
+    if (filters.paymentMethod) params.append("paymentMethod", filters.paymentMethod);
+    if (filters.period && filters.period !== "all") params.append("period", filters.period);
+    const response = await api.get(`/payments/batches?${params.toString()}`);
     return response;
   } catch (error) {
     throw error;
